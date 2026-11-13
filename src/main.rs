@@ -36,6 +36,22 @@ enum Cmd {
         #[arg(long)]
         adopt: bool,
     },
+    /// Manage secrets.env, the local file for `${VAR}` values.
+    Secret {
+        #[command(subcommand)]
+        command: SecretCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum SecretCmd {
+    /// Store a value; read without echo from the terminal, or from stdin.
+    Set {
+        /// Variable name, as used in `${NAME}`.
+        name: String,
+    },
+    /// Show the names defined in secrets.env (never the values).
+    List,
 }
 
 fn main() {
@@ -49,6 +65,12 @@ fn main() {
         Cmd::Status => agsync::report::status(),
         Cmd::Diff => agsync::report::diff(),
         Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt),
+        Cmd::Secret {
+            command: SecretCmd::Set { name },
+        } => agsync::cmd::secret_set(&name),
+        Cmd::Secret {
+            command: SecretCmd::List,
+        } => agsync::cmd::secret_list(),
     };
     if let Err(e) = result {
         eprintln!("erro: {e:#}");
