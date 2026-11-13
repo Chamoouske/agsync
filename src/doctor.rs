@@ -76,7 +76,9 @@ pub fn hint(error: &str) -> Option<&'static str> {
     }
     if auth.iter().any(|w| text.contains(w)) {
         return Some(
-            "erro de autenticacao: confira o credential helper, o token ou a chave SSH para este host",
+            "erro de autenticacao: o agsync roda o git sem prompt de senha (GIT_TERMINAL_PROMPT=0), \
+             entao a credencial precisa ja estar salva: configure o credential helper ou um token \
+             para este host, ou use chave SSH carregada no ssh-agent; teste com `git ls-remote <url>`",
         );
     }
     None
@@ -227,6 +229,9 @@ mod tests {
         assert!(!hint(tls).unwrap().contains("sslVerify"));
         let auth = "fatal: Authentication failed for 'https://git.corp/x/'";
         assert!(hint(auth).unwrap().contains("autenticacao"));
+        let no_prompt =
+            "fatal: could not read Username for 'https://git.corp': terminal prompts disabled";
+        assert!(hint(no_prompt).unwrap().contains("GIT_TERMINAL_PROMPT=0"));
         assert!(hint("fatal: repository not found").is_none());
     }
 }

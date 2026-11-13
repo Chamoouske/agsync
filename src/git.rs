@@ -135,9 +135,15 @@ impl Snapshot {
 }
 
 /// Runs `git` and returns stdout; the error carries git's stderr.
+///
+/// Git never prompts for credentials here (`GIT_TERMINAL_PROMPT=0`, and no Git
+/// Credential Manager dialog): a missing credential fails fast instead of hanging.
 pub fn git(args: &[&str], cwd: Option<&Path>) -> anyhow::Result<String> {
     let mut cmd = Command::new("git");
-    cmd.args(args).stdin(Stdio::null());
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never");
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
@@ -212,6 +218,20 @@ mod tests {
 
         let snap = Snapshot::fetch(&url, "main", &head).unwrap();
         assert_eq!(snap.commit, head);
+    }
+
+    #[test]
+    fn git_runs_without_credential_prompts() {
+        let seen = git(
+            &[
+                "-c",
+                "alias.agsyncenv=!echo $GIT_TERMINAL_PROMPT $GCM_INTERACTIVE",
+                "agsyncenv",
+            ],
+            None,
+        )
+        .unwrap();
+        assert_eq!(seen.trim(), "0 never");
     }
 
     #[test]
