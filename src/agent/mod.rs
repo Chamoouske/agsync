@@ -3,12 +3,14 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::deliver::RefStyle;
 use crate::mcp::McpSpec;
 use crate::state::LinkMode;
 
 pub mod backup;
 pub mod claude;
 pub mod cli;
+pub mod codex;
 pub mod link;
 pub mod opencode;
 
@@ -17,8 +19,8 @@ pub const NOT_IMPLEMENTED: &str = "adaptador ainda nao implementado";
 
 /// What agsync needs from an agent's user-level config.
 pub trait Adapter {
-    /// True if the agent expands `${VAR}` in MCP entries from its own environment.
-    fn expands_env_refs(&self) -> bool;
+    /// Where the agent takes `${VAR}` references in MCP entries instead of values.
+    fn ref_style(&self) -> RefStyle;
     /// Current MCP entries: name to content hash.
     fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>>;
     /// Current skill folders: name to content hash.
@@ -39,6 +41,7 @@ pub trait Adapter {
 pub fn detect(agent: &str) -> Result<Box<dyn Adapter>, String> {
     match agent {
         "claude" => claude::Claude::detect().map(|c| Box::new(c) as Box<dyn Adapter>),
+        "codex" => codex::Codex::detect().map(|c| Box::new(c) as Box<dyn Adapter>),
         "opencode" => opencode::OpenCode::detect().map(|c| Box::new(c) as Box<dyn Adapter>),
         _ => Err(NOT_IMPLEMENTED.to_string()),
     }

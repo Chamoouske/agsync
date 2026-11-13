@@ -107,6 +107,12 @@ pub fn refs(text: &str) -> Vec<String> {
     names
 }
 
+/// `NAME` when the whole text is one `${NAME}` reference.
+pub fn whole_ref(text: &str) -> Option<&str> {
+    let name = text.strip_prefix("${")?.strip_suffix('}')?;
+    valid_name(name).then_some(name)
+}
+
 /// Replaces each `${NAME}` for which `value` returns `Some`; others stay as written.
 pub fn substitute(text: &str, value: impl Fn(&str) -> Option<String>) -> String {
     let mut out = String::new();
@@ -168,6 +174,14 @@ mod tests {
     fn finds_refs() {
         assert_eq!(refs("a ${X} ${Y_2}/${X} $Z ${} ${1A} ${open"), ["X", "Y_2"]);
         assert!(refs("plain").is_empty());
+    }
+
+    #[test]
+    fn whole_ref_is_one_reference_and_nothing_else() {
+        assert_eq!(whole_ref("${TOKEN}"), Some("TOKEN"));
+        assert_eq!(whole_ref("Bearer ${TOKEN}"), None);
+        assert_eq!(whole_ref("${A}${B}"), None);
+        assert_eq!(whole_ref("${1A}"), None);
     }
 
     #[test]
