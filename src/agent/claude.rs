@@ -7,13 +7,11 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::Command;
 
 use anyhow::Context;
 
-use super::{Adapter, link};
-use crate::hash::hash_dir;
+use super::{Adapter, backup, cli, link};
 use crate::mcp::{McpSpec, hash_value};
 use crate::state::LinkMode;
 
@@ -69,25 +67,10 @@ impl Claude {
 
     /// Runs one `claude` call. Output is only echoed when it cannot hold secrets.
     fn run(&self, args: &[&str], show_output: bool) -> anyhow::Result<()> {
-        let out = Command::new(&self.exe)
-            .args(args)
-            .stdin(Stdio::null())
-            .output()
-            .with_context(|| format!("executar {}", self.exe.display()))?;
-        if out.status.success() {
-            return Ok(());
-        }
-        let code = out.status.code().unwrap_or(-1);
-        let what = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
-        if !show_output {
-            anyhow::bail!("claude {what} falhou (exit {code})");
-        }
-        let text = format!(
-            "{} {}",
-            String::from_utf8_lossy(&out.stdout).trim(),
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-        anyhow::bail!("claude {what} falhou (exit {code}): {}", text.trim());
+        let mut cmd = Command::new(&self.exe);
+        cmd.args(args);
+        let what = format!("claude {}", args[..2].join(" "));
+        cli::run(cmd, &what, show_output)
     }
 }
 
@@ -105,39 +88,11 @@ impl Adapter for Claude {
     }
 
     fn skills(&self) -> anyhow::Result<BTreeMap<String, String>> {
-        let mut found = BTreeMap::new();
-        let entries = match std::fs::read_dir(&self.skills_dir) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(found),
-            Err(e) => return Err(e).with_context(|| format!("ler {}", self.skills_dir.display())),
-        };
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            if path.is_dir() {
-                let hash = hash_dir(&path).unwrap_or_else(|_| "ilegivel".to_string());
-                found.insert(name, hash);
-            } else if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_symlink()) {
-                found.insert(name, "link-quebrado".to_string());
-            }
-        }
-        Ok(found)
+        link::installed(&self.skills_dir)
     }
 
     fn backup(&self, dir: &Path) -> anyhow::Result<()> {
-        if !self.config_file.is_file() {
-            return Ok(());
-        }
-        let millis = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        std::fs::create_dir_all(dir)?;
-        let dest = dir.join(format!("claude.json.{millis}"));
-        std::fs::copy(&self.config_file, &dest)
-            .with_context(|| format!("backup de {}", self.config_file.display()))?;
-        Ok(())
+        backup::copy(&self.config_file, dir, "claude.json")
     }
 
     fn write_mcp(&self, name: &str, spec: &McpSpec) -> anyhow::Result<()> {
@@ -176,6 +131,7 @@ impl Adapter for Claude {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hash::hash_dir;
     use crate::tmp::TempDir;
 
     #[test]

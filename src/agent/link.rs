@@ -1,5 +1,6 @@
 //! Skill folders: content-addressed cache and links from agent skills dirs into it.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -7,6 +8,28 @@ use anyhow::Context;
 
 use crate::hash::hash_dir;
 use crate::state::LinkMode;
+
+/// Skill folders (or links to folders) in an agent skills dir: name to content hash.
+pub fn installed(skills_dir: &Path) -> anyhow::Result<BTreeMap<String, String>> {
+    let mut found = BTreeMap::new();
+    let entries = match std::fs::read_dir(skills_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(found),
+        Err(e) => return Err(e).with_context(|| format!("ler {}", skills_dir.display())),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if path.is_dir() {
+            let hash = hash_dir(&path).unwrap_or_else(|_| "ilegivel".to_string());
+            found.insert(name, hash);
+        } else if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_symlink()) {
+            found.insert(name, "link-quebrado".to_string());
+        }
+    }
+    Ok(found)
+}
 
 /// Ensures `<cache_root>/<name>/<hash>/` holds a copy of `src`; returns its path.
 /// A cache folder whose content no longer matches `hash` is moved to `backups`.

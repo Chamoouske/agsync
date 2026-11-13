@@ -6,7 +6,9 @@ use std::path::Path;
 use crate::mcp::McpSpec;
 use crate::state::LinkMode;
 
+pub mod backup;
 pub mod claude;
+pub mod cli;
 pub mod link;
 
 /// Reason shown for agents without an adapter yet (milestone 4).
