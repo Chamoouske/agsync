@@ -12,6 +12,7 @@ use anyhow::Context;
 use crate::git;
 
 /// Written in the checkout root only after every build command succeeded.
+/// Holds a hash of the commands, so changed commands mean a new build.
 pub const BUILT_MARK: &str = ".agsync-built";
 
 /// Where the checkout of `name` at `sha` lives.
@@ -19,9 +20,14 @@ pub fn checkout_dir(sources_root: &Path, name: &str, sha: &str) -> PathBuf {
     sources_root.join(name).join(sha)
 }
 
-/// True if the build in `dir` finished with success.
-pub fn is_built(dir: &Path) -> bool {
-    dir.join(BUILT_MARK).is_file()
+/// True if `commands` already ran in `dir` with success.
+pub fn is_built(dir: &Path, commands: &[String]) -> bool {
+    std::fs::read_to_string(dir.join(BUILT_MARK)).is_ok_and(|text| text == build_id(commands))
+}
+
+fn build_id(commands: &[String]) -> String {
+    let joined = commands.join("\n");
+    format!("{}\n", crate::hash::hash_bytes(joined.as_bytes()))
 }
 
 /// Checks out `sha` into `dir` unless it is already there. Uses a `.tmp` sibling and a
@@ -62,7 +68,7 @@ impl BuildJob {
     /// Fresh checkout (an unbuilt leftover is deleted first), then every command in order.
     /// Output goes to a new log in `logs`; on failure the error names that log.
     pub fn run(&self, logs: &Path) -> anyhow::Result<()> {
-        if self.dir.is_dir() && !is_built(&self.dir) {
+        if self.dir.is_dir() && !is_built(&self.dir, &self.commands) {
             std::fs::remove_dir_all(&self.dir)
                 .with_context(|| format!("limpar checkout {}", self.dir.display()))?;
         }
@@ -97,7 +103,7 @@ pub fn build(dir: &Path, commands: &[String], log: &Path) -> anyhow::Result<()> 
             );
         }
     }
-    std::fs::write(dir.join(BUILT_MARK), "ok\n")
+    std::fs::write(dir.join(BUILT_MARK), build_id(commands))
         .with_context(|| format!("marcar build em {}", dir.display()))
 }
 
@@ -170,7 +176,9 @@ mod tests {
             &["echo built> out.txt", "echo second"],
         );
         ok.run(&logs).unwrap();
-        assert!(is_built(&ok.dir));
+        assert!(is_built(&ok.dir, &ok.commands));
+        let changed = vec!["echo other".to_string()];
+        assert!(!is_built(&ok.dir, &changed));
         assert!(ok.dir.join("server.txt").is_file());
         let out = std::fs::read_to_string(ok.dir.join("out.txt")).unwrap();
         assert!(out.starts_with("built"), "{out}");
@@ -194,13 +202,13 @@ mod tests {
         let err = bad.run(&logs).unwrap_err().to_string();
         assert!(err.contains("exit 3"), "{err}");
         assert!(err.contains("log:"), "{err}");
-        assert!(!is_built(&bad.dir));
+        assert!(!is_built(&bad.dir, &bad.commands));
         assert!(!bad.dir.join("never.txt").exists());
 
         std::fs::write(bad.dir.join("leftover"), "x").unwrap();
         let fixed = job(tmp.path(), &url, &sha, &["echo ok"]);
         fixed.run(&logs).unwrap();
-        assert!(is_built(&fixed.dir));
+        assert!(is_built(&fixed.dir, &fixed.commands));
         assert!(!fixed.dir.join("leftover").exists());
     }
 

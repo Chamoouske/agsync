@@ -106,7 +106,7 @@ fn mcp_source(
         ));
     }
     let dir = source::checkout_dir(sources, name, &sha);
-    let job = (!source::is_built(&dir)).then(|| BuildJob {
+    let job = (!source::is_built(&dir, build)).then(|| BuildJob {
         name: name.to_string(),
         repo: url.to_string(),
         git_ref: git_ref.to_string(),
