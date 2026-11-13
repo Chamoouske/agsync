@@ -16,6 +16,7 @@ pub mod paths;
 pub mod plan;
 pub mod report;
 pub mod secret;
+pub mod source;
 pub mod state;
 pub mod tmp;
 pub mod which;

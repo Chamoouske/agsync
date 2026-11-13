@@ -40,6 +40,14 @@ impl Dirs {
     pub fn skill_cache(&self) -> PathBuf {
         self.data.join("skills")
     }
+
+    pub fn sources(&self) -> PathBuf {
+        self.data.join("sources")
+    }
+
+    pub fn logs(&self) -> PathBuf {
+        self.data.join("logs")
+    }
 }
 
 /// User home: `USERPROFILE` on Windows, `HOME` elsewhere.
