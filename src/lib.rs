@@ -3,7 +3,9 @@
 
 pub mod atomic;
 pub mod git;
+pub mod hash;
 pub mod machine;
 pub mod manifest;
+pub mod mcp;
 pub mod paths;
 pub mod tmp;
