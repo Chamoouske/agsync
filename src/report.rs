@@ -1,12 +1,13 @@
 //! Snapshot the config repo and plan every agent: shared by status, diff and apply.
 
 use crate::agent::{self, Adapter};
-use crate::desired::{Desired, skipped_git_items};
+use crate::desired::{Context, Desired, skipped_git_items};
 use crate::git::{self, Snapshot};
 use crate::machine::Machine;
 use crate::manifest::{AGENTS, Manifest};
 use crate::paths::Dirs;
 use crate::plan::{Action, Change, plan};
+use crate::secret::{self, Secrets};
 use crate::state::{State, keys};
 
 /// Plan for one agent that has an adapter on this machine.
@@ -29,8 +30,8 @@ impl AgentPlan {
     fn detail(&self, kind: &str, change: &Change) -> String {
         let spec = self.desired.mcps.get(&change.name);
         match (kind, spec) {
-            ("mcp", Some(spec)) if change.action != Action::Conflict => {
-                format!(" [{}]", spec.describe())
+            ("mcp", Some(want)) if change.action != Action::Conflict => {
+                format!(" [{}]", want.shown.describe())
             }
             _ => String::new(),
         }
@@ -54,6 +55,7 @@ impl Report {
         let dirs = Dirs::from_env()?;
         let machine = Machine::load(&dirs.machine_file())?;
         let state = State::load(&dirs.state_file())?;
+        let secrets = Secrets::load(&secret::file_path(&dirs.config))?;
         let remote = git::resolve(&machine.repo, &machine.git_ref)?;
         let snapshot = Snapshot::fetch(&machine.repo, &machine.git_ref, &remote)?;
         let text = std::fs::read_to_string(snapshot.path().join("agsync.yaml"))
@@ -62,6 +64,12 @@ impl Report {
         manifest.check_skill_dirs(snapshot.path())?;
 
         let mut skipped = skipped_git_items(&manifest, &machine.profiles);
+        let ctx = Context {
+            manifest: &manifest,
+            root: snapshot.path(),
+            active: &machine.profiles,
+            secrets: &secrets,
+        };
         let mut agents = Vec::new();
         for agent in AGENTS {
             let adapter = match agent::detect(agent) {
@@ -71,14 +79,16 @@ impl Report {
                     continue;
                 }
             };
-            let desired = Desired::for_agent(&manifest, snapshot.path(), &machine.profiles, agent)?;
+            let desired = Desired::for_agent(&ctx, agent, adapter.expands_env_refs())?;
+            skipped.extend(desired.skipped.iter().cloned());
             let tracked = state.agent(agent);
-            let mcps = plan(
+            let mut mcps = plan(
                 &desired.mcp_wants(),
                 &keys(&tracked.mcps),
                 &adapter.mcps()?,
                 adopt,
             );
+            mcps.retain(|c| !desired.held.contains(&c.name));
             let skills = plan(
                 &desired.skill_wants(),
                 &keys(&tracked.skills),

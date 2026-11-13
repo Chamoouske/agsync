@@ -6,7 +6,7 @@ use crate::agent::link;
 use crate::paths::Dirs;
 use crate::plan::{Action, Change};
 use crate::report::{AgentPlan, Report};
-use crate::state::{State, Tracked};
+use crate::state::State;
 
 /// Shows the diff, asks for confirmation, applies, updates state, deletes the snapshot.
 pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
@@ -105,22 +105,23 @@ fn apply_agent(plan: &AgentPlan, dirs: &Dirs, state: &mut State) -> Outcome {
 fn apply_mcp(plan: &AgentPlan, change: &Change, state: &mut State) -> anyhow::Result<()> {
     let name = &change.name;
     let desired = plan.desired.mcps.get(name);
+    let entries = state.agent_mut(plan.agent);
     match (change.action, desired) {
-        (Action::Add | Action::Update | Action::Overwrite | Action::Adopt, Some(spec)) => {
-            plan.adapter.write_mcp(name, spec)?;
-            track(state, plan.agent, "mcp", name, spec.hash(), None);
+        (Action::Add | Action::Update | Action::Overwrite | Action::Adopt, Some(want)) => {
+            plan.adapter.write_mcp(name, &want.write)?;
+            entries.mcps.insert(name.clone(), want.tracked());
             report(plan, change, "mcp");
         }
         (Action::Remove, _) => {
             plan.adapter.remove_mcp(name)?;
-            state.agent_mut(plan.agent).mcps.remove(name);
+            entries.mcps.remove(name);
             report(plan, change, "mcp");
         }
         (Action::Forget, _) => {
-            state.agent_mut(plan.agent).mcps.remove(name);
+            entries.mcps.remove(name);
         }
-        (Action::Keep, Some(spec)) => {
-            track(state, plan.agent, "mcp", name, spec.hash(), None);
+        (Action::Keep, Some(want)) => {
+            entries.mcps.insert(name.clone(), want.tracked());
         }
         _ => {}
     }
@@ -136,64 +137,30 @@ fn apply_skill(
     let name = &change.name;
     let backups = dirs.backups();
     let desired = plan.desired.skills.get(name);
+    let entries = state.agent_mut(plan.agent);
     match (change.action, desired) {
         (Action::Add | Action::Update | Action::Overwrite | Action::Adopt, Some(src)) => {
             let cached =
                 link::ensure_cache(&src.dir, &dirs.skill_cache(), name, &src.hash, &backups)?;
             let mode = plan.adapter.write_skill(name, &cached, &backups)?;
-            track(
-                state,
-                plan.agent,
-                "skill",
-                name,
-                src.hash.clone(),
-                Some(mode),
-            );
+            entries.skills.insert(name.clone(), src.tracked(Some(mode)));
             report(plan, change, "skill");
         }
         (Action::Remove, _) => {
             plan.adapter.remove_skill(name, &backups)?;
-            state.agent_mut(plan.agent).skills.remove(name);
+            entries.skills.remove(name);
             report(plan, change, "skill");
         }
         (Action::Forget, _) => {
-            state.agent_mut(plan.agent).skills.remove(name);
+            entries.skills.remove(name);
         }
         (Action::Keep, Some(src)) => {
-            let mode = state
-                .agent(plan.agent)
-                .skills
-                .get(name)
-                .and_then(|t| t.mode);
-            track(state, plan.agent, "skill", name, src.hash.clone(), mode);
+            let mode = entries.skills.get(name).and_then(|t| t.mode);
+            entries.skills.insert(name.clone(), src.tracked(mode));
         }
         _ => {}
     }
     Ok(())
-}
-
-fn track(
-    state: &mut State,
-    agent: &str,
-    kind: &str,
-    name: &str,
-    hash: String,
-    mode: Option<crate::state::LinkMode>,
-) {
-    let entries = state.agent_mut(agent);
-    let map = if kind == "mcp" {
-        &mut entries.mcps
-    } else {
-        &mut entries.skills
-    };
-    map.insert(
-        name.to_string(),
-        Tracked {
-            hash,
-            mode,
-            sha: None,
-        },
-    );
 }
 
 fn report(plan: &AgentPlan, change: &Change, kind: &str) {

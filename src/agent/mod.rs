@@ -14,6 +14,8 @@ pub const NOT_IMPLEMENTED: &str = "adaptador ainda nao implementado";
 
 /// What agsync needs from an agent's user-level config.
 pub trait Adapter {
+    /// True if the agent expands `${VAR}` in MCP entries from its own environment.
+    fn expands_env_refs(&self) -> bool;
     /// Current MCP entries: name to content hash.
     fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>>;
     /// Current skill folders: name to content hash.

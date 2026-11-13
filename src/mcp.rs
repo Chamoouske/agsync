@@ -44,6 +44,42 @@ impl McpSpec {
         serde_json::to_string(self).unwrap_or_default()
     }
 
+    /// Same entry with `f` applied to command, args, env values, url and header values.
+    pub fn map_strings(&self, f: impl Fn(&str) -> String) -> McpSpec {
+        let map = |m: &BTreeMap<String, String>| {
+            m.iter()
+                .map(|(k, v)| (k.clone(), f(v)))
+                .collect::<BTreeMap<_, _>>()
+        };
+        match self {
+            McpSpec::Stdio { command, args, env } => McpSpec::Stdio {
+                command: f(command),
+                args: args.iter().map(|a| f(a)).collect(),
+                env: map(env),
+            },
+            McpSpec::Http { url, headers } => McpSpec::Http {
+                url: f(url),
+                headers: map(headers),
+            },
+        }
+    }
+
+    /// Names of the `${VAR}` references, in order, without repeats.
+    pub fn secret_refs(&self) -> Vec<String> {
+        let texts: Vec<&str> = match self {
+            McpSpec::Stdio { command, args, env } => std::iter::once(command)
+                .chain(args)
+                .chain(env.values())
+                .map(String::as_str)
+                .collect(),
+            McpSpec::Http { url, headers } => std::iter::once(url)
+                .chain(headers.values())
+                .map(String::as_str)
+                .collect(),
+        };
+        crate::secret::refs(&texts.join("\n"))
+    }
+
     /// Hash of the canonical JSON form.
     pub fn hash(&self) -> String {
         crate::hash::hash_bytes(self.to_json().as_bytes())
@@ -116,6 +152,21 @@ mcps:
             remote.to_json(),
             r#"{"type":"http","url":"https://example.com/mcp","headers":{"Authorization":"secret-header"}}"#
         );
+    }
+
+    #[test]
+    fn finds_refs_in_every_substituted_field() {
+        let stdio = McpSpec::Stdio {
+            command: "${A}".into(),
+            args: vec!["${B}".into()],
+            env: BTreeMap::from([("${NOT_A_REF_KEY}".to_string(), "${C}".to_string())]),
+        };
+        assert_eq!(stdio.secret_refs(), ["A", "B", "C"]);
+        let http = McpSpec::Http {
+            url: "https://x/${U}".into(),
+            headers: BTreeMap::from([("Authorization".to_string(), "Bearer ${H}".to_string())]),
+        };
+        assert_eq!(http.secret_refs(), ["U", "H"]);
     }
 
     #[test]

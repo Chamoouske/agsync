@@ -92,6 +92,10 @@ impl Claude {
 }
 
 impl Adapter for Claude {
+    fn expands_env_refs(&self) -> bool {
+        true
+    }
+
     fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>> {
         let servers = self.servers()?;
         Ok(servers
