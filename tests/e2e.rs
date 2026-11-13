@@ -152,7 +152,7 @@ const HELLO: &str = "  - path: skills/hello\n";
 
 #[test]
 fn end_to_end_with_real_claude() {
-    if agsync::agent::find_in_path("claude").is_none() {
+    if agsync::which::find("claude").is_none() {
         eprintln!("SKIP end_to_end_with_real_claude: `claude` nao esta no PATH");
         return;
     }

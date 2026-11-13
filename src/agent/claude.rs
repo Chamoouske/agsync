@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 
-use super::{Adapter, find_in_path, link};
+use super::{Adapter, link};
 use crate::hash::hash_dir;
 use crate::mcp::{McpSpec, hash_value};
 use crate::state::LinkMode;
@@ -28,7 +28,7 @@ pub struct Claude {
 impl Claude {
     /// Finds `claude` in PATH and resolves config locations.
     pub fn detect() -> Result<Claude, String> {
-        let exe = find_in_path("claude").ok_or("claude nao encontrado no PATH")?;
+        let exe = crate::which::find("claude").ok_or("claude nao encontrado no PATH")?;
         if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
             return Ok(Claude::at(exe, &PathBuf::from(dir)));
         }
