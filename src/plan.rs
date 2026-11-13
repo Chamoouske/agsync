@@ -46,6 +46,15 @@ impl Action {
     }
 }
 
+/// What agsync wants for one entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Want {
+    /// Identity kept in state: changes when the config repo changes, never with secret values.
+    pub key: String,
+    /// Hash of what would be written to the agent now.
+    pub write: String,
+}
+
 /// One planned change.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
@@ -53,10 +62,10 @@ pub struct Change {
     pub action: Action,
 }
 
-/// Plans every name seen in `desired`, `tracked` (state) or `current` (agent config).
-/// Names only in `current` are manual entries and never appear in the result.
+/// Plans every name seen in `desired`, `tracked` (state keys) or `current` (agent config
+/// hashes). Names only in `current` are manual entries and never appear in the result.
 pub fn plan(
-    desired: &BTreeMap<String, String>,
+    desired: &BTreeMap<String, Want>,
     tracked: &BTreeMap<String, String>,
     current: &BTreeMap<String, String>,
     adopt: bool,
@@ -77,7 +86,7 @@ pub fn plan(
 }
 
 fn decide(
-    desired: Option<&String>,
+    desired: Option<&Want>,
     tracked: Option<&String>,
     current: Option<&String>,
     adopt: bool,
@@ -86,8 +95,8 @@ fn decide(
         (Some(_), None, None) => Action::Add,
         (Some(_), None, Some(_)) if adopt => Action::Adopt,
         (Some(_), None, Some(_)) => Action::Conflict,
-        (Some(d), Some(_), Some(c)) if c == d => Action::Keep,
-        (Some(_), Some(t), Some(c)) if c == t => Action::Update,
+        (Some(d), Some(t), Some(c)) if *t == d.key && *c == d.write => Action::Keep,
+        (Some(d), Some(t), _) if *t != d.key => Action::Update,
         (Some(_), Some(_), _) => Action::Overwrite,
         (None, Some(_), Some(_)) => Action::Remove,
         (None, Some(_), None) => Action::Forget,
@@ -106,8 +115,21 @@ mod tests {
             .collect()
     }
 
+    fn wants(pairs: &[(&str, &str)]) -> BTreeMap<String, Want> {
+        pairs
+            .iter()
+            .map(|(k, v)| {
+                let want = Want {
+                    key: v.to_string(),
+                    write: v.to_string(),
+                };
+                (k.to_string(), want)
+            })
+            .collect()
+    }
+
     fn one(desired: &[(&str, &str)], tracked: &[(&str, &str)], current: &[(&str, &str)]) -> Action {
-        let changes = plan(&map(desired), &map(tracked), &map(current), false);
+        let changes = plan(&wants(desired), &map(tracked), &map(current), false);
         assert_eq!(changes.len(), 1, "{changes:?}");
         changes[0].action
     }
@@ -135,19 +157,36 @@ mod tests {
             one(&[("a", "1")], &[("a", "1")], &[("a", "x")]),
             Action::Overwrite
         );
-        assert_eq!(
-            one(&[("a", "2")], &[("a", "1")], &[("a", "x")]),
-            Action::Overwrite
-        );
         assert_eq!(one(&[("a", "1")], &[("a", "1")], &[]), Action::Overwrite);
     }
 
     #[test]
-    fn drift_that_already_matches_is_kept() {
+    fn repo_change_wins_over_manual_drift() {
+        assert_eq!(
+            one(&[("a", "2")], &[("a", "1")], &[("a", "x")]),
+            Action::Update
+        );
+    }
+
+    #[test]
+    fn new_key_is_an_update_even_if_written_content_matches() {
         assert_eq!(
             one(&[("a", "2")], &[("a", "1")], &[("a", "2")]),
-            Action::Keep
+            Action::Update
         );
+    }
+
+    #[test]
+    fn key_and_written_hash_are_compared_separately() {
+        let want = Want {
+            key: "k".into(),
+            write: "w".into(),
+        };
+        let desired = BTreeMap::from([("a".to_string(), want)]);
+        let keep = plan(&desired, &map(&[("a", "k")]), &map(&[("a", "w")]), false);
+        assert_eq!(keep[0].action, Action::Keep);
+        let drift = plan(&desired, &map(&[("a", "k")]), &map(&[("a", "k")]), false);
+        assert_eq!(drift[0].action, Action::Overwrite);
     }
 
     #[test]
@@ -161,20 +200,20 @@ mod tests {
     fn name_clash_with_manual_entry_is_conflict_unless_adopt() {
         assert_eq!(one(&[("a", "1")], &[], &[("a", "x")]), Action::Conflict);
         assert_eq!(one(&[("a", "1")], &[], &[("a", "1")]), Action::Conflict);
-        let adopted = plan(&map(&[("a", "1")]), &map(&[]), &map(&[("a", "x")]), true);
+        let adopted = plan(&wants(&[("a", "1")]), &map(&[]), &map(&[("a", "x")]), true);
         assert_eq!(adopted[0].action, Action::Adopt);
     }
 
     #[test]
     fn manual_entries_outside_state_are_never_touched() {
-        let changes = plan(&map(&[]), &map(&[]), &map(&[("manual", "x")]), true);
+        let changes = plan(&wants(&[]), &map(&[]), &map(&[("manual", "x")]), true);
         assert!(changes.is_empty());
     }
 
     #[test]
     fn plans_names_in_sorted_order() {
         let changes = plan(
-            &map(&[("b", "1"), ("a", "1")]),
+            &wants(&[("b", "1"), ("a", "1")]),
             &map(&[("c", "1")]),
             &map(&[("c", "1")]),
             false,

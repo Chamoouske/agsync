@@ -7,7 +7,7 @@ use crate::machine::Machine;
 use crate::manifest::{AGENTS, Manifest};
 use crate::paths::Dirs;
 use crate::plan::{Action, Change, plan};
-use crate::state::{State, hashes};
+use crate::state::{State, keys};
 
 /// Plan for one agent that has an adapter on this machine.
 pub struct AgentPlan {
@@ -74,14 +74,14 @@ impl Report {
             let desired = Desired::for_agent(&manifest, snapshot.path(), &machine.profiles, agent)?;
             let tracked = state.agent(agent);
             let mcps = plan(
-                &desired.mcp_hashes(),
-                &hashes(&tracked.mcps),
+                &desired.mcp_wants(),
+                &keys(&tracked.mcps),
                 &adapter.mcps()?,
                 adopt,
             );
             let skills = plan(
-                &desired.skill_hashes(),
-                &hashes(&tracked.skills),
+                &desired.skill_wants(),
+                &keys(&tracked.skills),
                 &adapter.skills()?,
                 adopt,
             );

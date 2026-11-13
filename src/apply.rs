@@ -186,7 +186,14 @@ fn track(
     } else {
         &mut entries.skills
     };
-    map.insert(name.to_string(), Tracked { hash, mode });
+    map.insert(
+        name.to_string(),
+        Tracked {
+            hash,
+            mode,
+            sha: None,
+        },
+    );
 }
 
 fn report(plan: &AgentPlan, change: &Change, kind: &str) {

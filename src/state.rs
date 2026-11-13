@@ -15,13 +15,31 @@ pub enum LinkMode {
     Copy,
 }
 
-/// One entry written by agsync, with the hash of the content written.
+/// One entry written by agsync. `hash` never depends on secret values.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tracked {
     pub hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<LinkMode>,
+    /// Commit of the git source, for items built or copied from one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha: Option<String>,
+}
+
+impl Tracked {
+    /// Identity compared with [`crate::plan::Want::key`].
+    pub fn key(&self) -> String {
+        state_key(&self.hash, self.sha.as_deref())
+    }
+}
+
+/// `hash`, plus `@sha` for items from a git source.
+pub fn state_key(hash: &str, sha: Option<&str>) -> String {
+    match sha {
+        Some(sha) => format!("{hash}@{sha}"),
+        None => hash.to_string(),
+    }
 }
 
 /// Entries written for one agent.
@@ -68,11 +86,11 @@ impl State {
     }
 }
 
-/// Name to hash view, as the planner wants it.
-pub fn hashes(entries: &BTreeMap<String, Tracked>) -> BTreeMap<String, String> {
+/// Name to key view, as the planner wants it.
+pub fn keys(entries: &BTreeMap<String, Tracked>) -> BTreeMap<String, String> {
     entries
         .iter()
-        .map(|(name, t)| (name.clone(), t.hash.clone()))
+        .map(|(name, t)| (name.clone(), t.key()))
         .collect()
 }
 
@@ -96,6 +114,7 @@ mod tests {
             Tracked {
                 hash: "h1".into(),
                 mode: None,
+                sha: None,
             },
         );
         claude.skills.insert(
@@ -103,12 +122,14 @@ mod tests {
             Tracked {
                 hash: "h2".into(),
                 mode: Some(LinkMode::Junction),
+                sha: Some("abc".into()),
             },
         );
         state.save(&file).unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("\"junction\""));
         assert_eq!(State::load(&file).unwrap(), state);
-        assert_eq!(hashes(&state.agent("claude").mcps)["echo"], "h1");
+        assert_eq!(keys(&state.agent("claude").mcps)["echo"], "h1");
+        assert_eq!(keys(&state.agent("claude").skills)["hello"], "h2@abc");
     }
 }

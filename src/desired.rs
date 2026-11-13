@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::hash::hash_dir;
 use crate::manifest::{GIT_SOURCE_SKIP, Manifest, selected, targets};
 use crate::mcp::McpSpec;
+use crate::plan::Want;
 
 /// A skill folder inside the snapshot, with its content hash.
 #[derive(Debug, Clone)]
@@ -54,17 +55,29 @@ impl Desired {
         Ok(desired)
     }
 
-    pub fn mcp_hashes(&self) -> BTreeMap<String, String> {
+    pub fn mcp_wants(&self) -> BTreeMap<String, Want> {
         self.mcps
             .iter()
-            .map(|(name, spec)| (name.clone(), spec.hash()))
+            .map(|(name, spec)| {
+                let want = Want {
+                    key: spec.hash(),
+                    write: spec.hash(),
+                };
+                (name.clone(), want)
+            })
             .collect()
     }
 
-    pub fn skill_hashes(&self) -> BTreeMap<String, String> {
+    pub fn skill_wants(&self) -> BTreeMap<String, Want> {
         self.skills
             .iter()
-            .map(|(name, src)| (name.clone(), src.hash.clone()))
+            .map(|(name, src)| {
+                let want = Want {
+                    key: src.hash.clone(),
+                    write: src.hash.clone(),
+                };
+                (name.clone(), want)
+            })
             .collect()
     }
 }
