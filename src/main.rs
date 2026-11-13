@@ -36,6 +36,8 @@ enum Cmd {
         #[arg(long)]
         adopt: bool,
     },
+    /// Check git, the config repo, agents, requires, secrets and source repos.
+    Doctor,
     /// Manage secrets.env, the local file for `${VAR}` values.
     Secret {
         #[command(subcommand)]
@@ -61,19 +63,24 @@ fn main() {
             url,
             git_ref,
             profiles,
-        } => agsync::cmd::init(url, git_ref, profiles),
-        Cmd::Status => agsync::report::status(),
-        Cmd::Diff => agsync::report::diff(),
-        Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt),
+        } => agsync::cmd::init(url, git_ref, profiles).map(|()| true),
+        Cmd::Status => agsync::report::status().map(|()| true),
+        Cmd::Diff => agsync::report::diff().map(|()| true),
+        Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt).map(|()| true),
+        Cmd::Doctor => agsync::doctor::doctor(),
         Cmd::Secret {
             command: SecretCmd::Set { name },
-        } => agsync::cmd::secret_set(&name),
+        } => agsync::cmd::secret_set(&name).map(|()| true),
         Cmd::Secret {
             command: SecretCmd::List,
-        } => agsync::cmd::secret_list(),
+        } => agsync::cmd::secret_list().map(|()| true),
     };
-    if let Err(e) = result {
-        eprintln!("erro: {e:#}");
-        std::process::exit(1);
+    match result {
+        Ok(true) => {}
+        Ok(false) => std::process::exit(1),
+        Err(e) => {
+            eprintln!("erro: {e:#}");
+            std::process::exit(1);
+        }
     }
 }

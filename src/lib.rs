@@ -8,6 +8,7 @@ pub mod cleanup;
 pub mod cmd;
 pub mod deliver;
 pub mod desired;
+pub mod doctor;
 pub mod git;
 pub mod hash;
 pub mod machine;
