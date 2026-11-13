@@ -180,7 +180,7 @@ mod tests {
         run(r, &["commit", "-q", "-m", "one"]);
         run(r, &["tag", "-a", "v1", "-m", "tag"]);
         let first = run(r, &["rev-parse", "HEAD"]).trim().to_string();
-        std::fs::write(r.join("agsync.yaml"), "version: 1\n# two\n").unwrap();
+        std::fs::write(r.join("agsync.yaml"), "version: 1\nprofiles: []\n").unwrap();
         run(r, &["commit", "-q", "-am", "two"]);
         let head = run(r, &["rev-parse", "HEAD"]).trim().to_string();
         let url = r.to_string_lossy().to_string();
