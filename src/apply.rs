@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::io::{BufRead, IsTerminal, Write};
 
 use crate::agent::link;
+use crate::cleanup;
 use crate::paths::Dirs;
 use crate::plan::{Action, Change};
 use crate::report::{AgentPlan, Report};
@@ -33,6 +34,9 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     state.commit = Some(report.snapshot.commit.clone());
     state.save(&report.dirs.state_file())?;
     report.snapshot.close()?;
+    if failures == 0 {
+        clean_caches(&report.dirs, &state);
+    }
 
     if !pending {
         println!("nada a aplicar");
@@ -44,6 +48,22 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
         anyhow::bail!("{failures} item(ns) falharam; os demais foram aplicados");
     }
     Ok(())
+}
+
+/// Deletes source checkouts and cached skills that no state entry uses.
+fn clean_caches(dirs: &Dirs, state: &State) {
+    let sources = cleanup::clean(&dirs.sources(), &cleanup::used_sources(state));
+    let skills = cleanup::clean(&dirs.skill_cache(), &cleanup::used_skill_cache(state));
+    match (sources, skills) {
+        (Ok(a), Ok(b)) if a.len() + b.len() > 0 => {
+            println!(
+                "limpeza: {} pasta(s) sem uso removida(s)",
+                a.len() + b.len()
+            );
+        }
+        (Err(e), _) | (_, Err(e)) => eprintln!("aviso: limpeza do cache falhou: {e:#}"),
+        _ => {}
+    }
 }
 
 /// Runs each build; returns the names of the MCPs whose build failed (they are skipped).

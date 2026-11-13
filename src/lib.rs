@@ -4,6 +4,7 @@
 pub mod agent;
 pub mod apply;
 pub mod atomic;
+pub mod cleanup;
 pub mod cmd;
 pub mod deliver;
 pub mod desired;
