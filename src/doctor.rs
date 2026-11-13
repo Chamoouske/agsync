@@ -37,6 +37,7 @@ pub fn doctor() -> anyhow::Result<bool> {
     let dirs = Dirs::from_env()?;
     check_agents(&mut checks);
     check_secrets_file(&mut checks, &dirs);
+    check_backups(&mut checks, &dirs);
     let machine = match Machine::load(&dirs.machine_file()) {
         Ok(machine) => machine,
         Err(e) => {
@@ -124,6 +125,21 @@ fn check_secrets_file(checks: &mut Checks, dirs: &Dirs) {
             file.display()
         )),
         Err(e) => checks.problem(&format!("permissao de {}: {e:#}", file.display())),
+    }
+}
+
+fn check_backups(checks: &mut Checks, dirs: &Dirs) {
+    let dir = dirs.backups();
+    if !dir.is_dir() {
+        return;
+    }
+    match secret::file::is_private(&dir) {
+        Ok(true) => checks.ok(&format!("{} acessivel so pelo usuario", dir.display())),
+        Ok(false) => checks.problem(&format!(
+            "{} pode ser lida por outros usuarios e guarda copias de configs com segredos; o proximo `agsync apply` com mudancas restringe a pasta",
+            dir.display()
+        )),
+        Err(e) => checks.problem(&format!("permissao de {}: {e:#}", dir.display())),
     }
 }
 

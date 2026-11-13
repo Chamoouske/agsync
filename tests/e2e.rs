@@ -120,6 +120,7 @@ fn end_to_end_with_real_claude() {
     env.ok(&["apply", "--yes"]);
     assert_eq!(env.args_of("echo"), serde_json::json!(["v2.js"]));
     assert!(count(&env.data.join("backups")) > backups_before);
+    assert!(agsync::secret::file::is_private(&env.data.join("backups")).unwrap());
 
     let manual = r#"{"type":"stdio","command":"node","args":["manual.js"]}"#;
     env.claude(&["mcp", "add-json", "--scope", "user", "manual", manual]);

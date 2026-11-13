@@ -1,4 +1,5 @@
-//! Windows ACL for `secrets.env`: a protected DACL with a single entry for the current user.
+//! Windows ACL for `secrets.env` and the backups folder: a protected DACL with a single
+//! entry for the current user.
 //!
 //! Done through the Win32 API instead of `icacls`: `icacls /grant:r` keeps explicit
 //! entries for other principals, and reading its output means parsing localized names.
@@ -13,10 +14,11 @@ use windows_sys::Win32::Security::Authorization::{
     GetNamedSecurityInfoW, SE_FILE_OBJECT, SetNamedSecurityInfoW,
 };
 use windows_sys::Win32::Security::{
-    ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_REVISION, AddAccessAllowedAce,
-    DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetLengthSid, GetSecurityDescriptorControl,
-    GetTokenInformation, InitializeAcl, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
-    SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER, TokenUser,
+    ACCESS_ALLOWED_ACE, ACE_FLAGS, ACE_HEADER, ACL, ACL_REVISION, AddAccessAllowedAceEx,
+    CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, EqualSid, GetAce, GetLengthSid,
+    GetSecurityDescriptorControl, GetTokenInformation, InitializeAcl, OBJECT_INHERIT_ACE,
+    PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, SE_DACL_PROTECTED, TOKEN_QUERY,
+    TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
 use windows_sys::Win32::System::SystemServices::{ACCESS_ALLOWED_ACE_TYPE, ACCESS_DENIED_ACE_TYPE};
@@ -24,6 +26,15 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 
 /// Replaces the file DACL with full access for the current user only, no inheritance.
 pub fn restrict(path: &Path) -> anyhow::Result<()> {
+    owner_only(path, 0)
+}
+
+/// Same as [`restrict`] for a folder; files and folders created inside inherit it.
+pub fn restrict_dir(path: &Path) -> anyhow::Result<()> {
+    owner_only(path, OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)
+}
+
+fn owner_only(path: &Path, flags: ACE_FLAGS) -> anyhow::Result<()> {
     let user = token_user()?;
     let sid = user_sid(&user);
     unsafe {
@@ -34,8 +45,8 @@ pub fn restrict(path: &Path) -> anyhow::Result<()> {
         if InitializeAcl(acl, acl_len as u32, ACL_REVISION) == 0 {
             anyhow::bail!("InitializeAcl: {}", std::io::Error::last_os_error());
         }
-        if AddAccessAllowedAce(acl, ACL_REVISION, FILE_ALL_ACCESS, sid) == 0 {
-            anyhow::bail!("AddAccessAllowedAce: {}", std::io::Error::last_os_error());
+        if AddAccessAllowedAceEx(acl, ACL_REVISION, flags, FILE_ALL_ACCESS, sid) == 0 {
+            anyhow::bail!("AddAccessAllowedAceEx: {}", std::io::Error::last_os_error());
         }
         let wide = wide(path);
         let info = DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION;
@@ -61,6 +72,16 @@ pub fn restrict(path: &Path) -> anyhow::Result<()> {
 
 /// True if the DACL is protected and every allow entry is for the current user.
 pub fn is_private(path: &Path) -> anyhow::Result<bool> {
+    read_dacl(path, true)
+}
+
+/// True if every allow entry is for the current user, inherited or not.
+#[cfg(test)]
+pub fn only_user(path: &Path) -> anyhow::Result<bool> {
+    read_dacl(path, false)
+}
+
+fn read_dacl(path: &Path, must_be_protected: bool) -> anyhow::Result<bool> {
     let user = token_user()?;
     let sid = user_sid(&user);
     unsafe {
@@ -84,7 +105,8 @@ pub fn is_private(path: &Path) -> anyhow::Result<bool> {
                 std::io::Error::from_raw_os_error(code as i32)
             );
         }
-        let private = !dacl.is_null() && protected(sd) && only_user_allowed(dacl, sid);
+        let protection_ok = !must_be_protected || protected(sd);
+        let private = !dacl.is_null() && protection_ok && only_user_allowed(dacl, sid);
         LocalFree(sd);
         Ok(private)
     }

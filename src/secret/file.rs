@@ -70,7 +70,25 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     restrict(path)
 }
 
-/// True if only the current user can access the file.
+/// Creates `dir` if needed and makes it reachable by the current user only.
+///
+/// Linux: mode 0700. Windows: a protected DACL with one inheritable entry for the
+/// current user, so files copied in later get it too.
+pub fn private_dir(dir: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dir).with_context(|| format!("criar pasta {}", dir.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("chmod 700 {}", dir.display()))
+    }
+    #[cfg(windows)]
+    {
+        super::acl::restrict_dir(dir)
+    }
+}
+
+/// True if only the current user can access the file or folder.
 pub fn is_private(path: &Path) -> anyhow::Result<bool> {
     #[cfg(unix)]
     {
@@ -147,5 +165,20 @@ mod tests {
         assert!(set(&file, "A", "x\ny").is_err());
         let leftovers = std::fs::read_dir(file.parent().unwrap()).unwrap().count();
         assert_eq!(leftovers, 1);
+    }
+
+    #[test]
+    fn private_dir_covers_files_copied_in() {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let dir = tmp.path().join("backups");
+        private_dir(&dir).unwrap();
+        private_dir(&dir).unwrap();
+        assert!(is_private(&dir).unwrap());
+        let src = tmp.path().join("config.json");
+        std::fs::write(&src, "{}").unwrap();
+        let copy = dir.join("config.json.1");
+        std::fs::copy(&src, &copy).unwrap();
+        #[cfg(windows)]
+        assert!(super::super::acl::only_user(&copy).unwrap());
     }
 }

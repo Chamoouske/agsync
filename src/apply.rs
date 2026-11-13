@@ -22,6 +22,9 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     if pending && !confirmed(yes)? {
         return report.snapshot.close();
     }
+    if pending {
+        crate::secret::file::private_dir(&report.dirs.backups())?;
+    }
 
     let failed_builds = run_builds(&report);
     let mut failures = failed_builds.len();
