@@ -148,6 +148,43 @@ impl Env {
     }
 }
 
+/// `PATH` with `first`, then the folders holding the tools found among `tools`.
+/// Keeps every other agent CLI out of reach of the run.
+pub fn path_with(tools: &[&str], first: &[PathBuf]) -> OsString {
+    let mut dirs: Vec<PathBuf> = first.to_vec();
+    for tool in tools {
+        if let Some(exe) = agsync::which::find(tool) {
+            dirs.push(exe.parent().unwrap().to_path_buf());
+        }
+    }
+    std::env::join_paths(dirs).unwrap()
+}
+
+/// Hash and modification time of files that tests must never change.
+#[derive(Debug, PartialEq)]
+pub struct Untouched(Vec<(PathBuf, Option<(String, std::time::SystemTime)>)>);
+
+impl Untouched {
+    pub fn snapshot(files: &[PathBuf]) -> Untouched {
+        let seen = files
+            .iter()
+            .map(|file| {
+                let state = std::fs::read(file).ok().map(|bytes| {
+                    let mtime = std::fs::metadata(file).unwrap().modified().unwrap();
+                    (agsync::hash::hash_bytes(&bytes), mtime)
+                });
+                (file.clone(), state)
+            })
+            .collect();
+        Untouched(seen)
+    }
+
+    pub fn assert_same(&self) {
+        let files: Vec<PathBuf> = self.0.iter().map(|(f, _)| f.clone()).collect();
+        assert_eq!(&Untouched::snapshot(&files), self, "real config changed");
+    }
+}
+
 pub fn claude_missing(test: &str) -> bool {
     if agsync::which::find("claude").is_some() {
         return false;

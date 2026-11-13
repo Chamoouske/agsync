@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{Env, claude_missing, count, git};
+use common::{Env, claude_missing, count, git, path_with};
 
 const SECRET: &str = "s3cr3t-token-value";
 
@@ -37,6 +37,7 @@ fn end_to_end_with_real_claude() {
         return;
     }
     let mut env = Env::new();
+    env.path = Some(path_with(&["git", "claude", "sh"], &[]));
     env.forbidden.push(SECRET.to_string());
     git(&env.remote, &["init", "-q", "-b", "main"]);
     let skill_dir = env.remote.join("skills").join("hello");

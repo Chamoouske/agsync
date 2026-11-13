@@ -7,6 +7,7 @@ description = "Sync MCP servers and skills from a git config repo into coding ag
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
+jsonc-parser = { version = "0.34.0", default-features = false, features = ["cst", "serde_json"] }
 rpassword = "7.5.5"
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = { version = "2.1.1", default-features = false, features = ["deserialize"] }

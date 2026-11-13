@@ -10,6 +10,7 @@ pub mod backup;
 pub mod claude;
 pub mod cli;
 pub mod link;
+pub mod opencode;
 
 /// Reason shown for agents without an adapter yet (milestone 4).
 pub const NOT_IMPLEMENTED: &str = "adaptador ainda nao implementado";
@@ -38,6 +39,7 @@ pub trait Adapter {
 pub fn detect(agent: &str) -> Result<Box<dyn Adapter>, String> {
     match agent {
         "claude" => claude::Claude::detect().map(|c| Box::new(c) as Box<dyn Adapter>),
+        "opencode" => opencode::OpenCode::detect().map(|c| Box::new(c) as Box<dyn Adapter>),
         _ => Err(NOT_IMPLEMENTED.to_string()),
     }
 }

@@ -7,7 +7,7 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use common::{Env, claude_missing, count, git};
+use common::{Env, claude_missing, count, git, path_with};
 
 const ENV_SECRET: &str = "env-secret-value-123";
 const FILE_SECRET: &str = "file-secret-value-456";
@@ -162,6 +162,7 @@ fn git_sources_secrets_cleanup_and_doctor() {
         return;
     }
     let mut env = Env::new();
+    env.path = Some(path_with(&["git", "claude", "node", "sh"], &[]));
     env.forbidden = vec![ENV_SECRET.to_string(), FILE_SECRET.to_string()];
     env.vars = vec![("E2E_ENV_SECRET".to_string(), ENV_SECRET.to_string())];
     let src = Source::new(&env);
