@@ -2,6 +2,7 @@
 //! to the user-level configuration of coding agents.
 
 pub mod atomic;
+pub mod git;
 pub mod machine;
 pub mod manifest;
 pub mod paths;
