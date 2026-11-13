@@ -2,6 +2,7 @@
 //! to the user-level configuration of coding agents.
 
 pub mod agent;
+pub mod apply;
 pub mod atomic;
 pub mod cmd;
 pub mod desired;

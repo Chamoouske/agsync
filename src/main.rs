@@ -27,6 +27,15 @@ enum Cmd {
     Status,
     /// Show what the next apply would change, per agent.
     Diff,
+    /// Apply the config repo to every agent found on this machine.
+    Apply {
+        /// Apply without asking; required when stdin is not a terminal.
+        #[arg(long)]
+        yes: bool,
+        /// Take over manual entries whose name collides with the config repo.
+        #[arg(long)]
+        adopt: bool,
+    },
 }
 
 fn main() {
@@ -39,6 +48,7 @@ fn main() {
         } => agsync::cmd::init(url, git_ref, profiles),
         Cmd::Status => agsync::report::status(),
         Cmd::Diff => agsync::report::diff(),
+        Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt),
     };
     if let Err(e) = result {
         eprintln!("erro: {e:#}");
