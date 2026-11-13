@@ -12,5 +12,6 @@ pub mod manifest;
 pub mod mcp;
 pub mod paths;
 pub mod plan;
+pub mod report;
 pub mod state;
 pub mod tmp;

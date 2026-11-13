@@ -23,6 +23,10 @@ enum Cmd {
         #[arg(long = "profile", required = true)]
         profiles: Vec<String>,
     },
+    /// Show applied and remote commits, pending changes, drift, conflicts and skips.
+    Status,
+    /// Show what the next apply would change, per agent.
+    Diff,
 }
 
 fn main() {
@@ -33,6 +37,8 @@ fn main() {
             git_ref,
             profiles,
         } => agsync::cmd::init(url, git_ref, profiles),
+        Cmd::Status => agsync::report::status(),
+        Cmd::Diff => agsync::report::diff(),
     };
     if let Err(e) = result {
         eprintln!("erro: {e:#}");
