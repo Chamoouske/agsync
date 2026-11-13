@@ -3,6 +3,7 @@
 
 pub mod agent;
 pub mod atomic;
+pub mod desired;
 pub mod git;
 pub mod hash;
 pub mod machine;
