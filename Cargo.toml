@@ -8,3 +8,4 @@ description = "Sync MCP servers and skills from a git config repo into coding ag
 anyhow = "1.0.104"
 serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = { version = "2.1.1", default-features = false, features = ["deserialize"] }
+toml = "1.2.1"
