@@ -135,10 +135,8 @@ impl Manifest {
         if is_remote && (mcp.args.is_some() || mcp.env.is_some()) {
             anyhow::bail!("args e env so valem com command");
         }
-        if let Some(source) = &mcp.source
-            && source.git_ref.is_none()
-        {
-            anyhow::bail!("source.git exige ref");
+        if let Some(source) = &mcp.source {
+            check_ref(source.git_ref.as_deref(), "source.git")?;
         }
         Ok(())
     }
@@ -146,8 +144,8 @@ impl Manifest {
     fn validate_skill(&self, skill: &Skill) -> anyhow::Result<String> {
         self.check_profiles(&skill.profiles)?;
         check_agents(&skill.agents)?;
-        if skill.git.is_some() && skill.git_ref.is_none() {
-            anyhow::bail!("git exige ref");
+        if skill.git.is_some() {
+            check_ref(skill.git_ref.as_deref(), "git")?;
         }
         if skill.git.is_none() && skill.path.is_none() {
             anyhow::bail!("defina path (pasta no repo) ou git");
@@ -220,6 +218,16 @@ fn check_agents(agents: &Option<Vec<String>>) -> anyhow::Result<()> {
         if !AGENTS.contains(&agent.as_str()) {
             anyhow::bail!("agente '{agent}' desconhecido (use {})", AGENTS.join(", "));
         }
+    }
+    Ok(())
+}
+
+fn check_ref(git_ref: Option<&str>, field: &str) -> anyhow::Result<()> {
+    let Some(git_ref) = git_ref else {
+        anyhow::bail!("{field} exige ref");
+    };
+    if crate::git::is_short_sha(git_ref) {
+        anyhow::bail!("ref '{git_ref}' parece SHA abreviado; use o SHA completo");
     }
     Ok(())
 }

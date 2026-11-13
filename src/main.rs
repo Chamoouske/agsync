@@ -16,7 +16,7 @@ enum Cmd {
     Init {
         /// Git url of the config repo.
         url: String,
-        /// Branch or tag to follow (default: main).
+        /// Branch, tag or full commit SHA to follow (default: main).
         #[arg(long = "ref")]
         git_ref: Option<String>,
         /// Active profile; repeat for several.

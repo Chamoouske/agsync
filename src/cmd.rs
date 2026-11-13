@@ -8,7 +8,7 @@ use crate::paths::Dirs;
 pub fn init(url: String, git_ref: Option<String>, profiles: Vec<String>) -> anyhow::Result<()> {
     let dirs = Dirs::from_env()?;
     let machine = Machine::new(url, git_ref, profiles);
-    let commit = git::ls_remote(&machine.repo, &machine.git_ref)?;
+    let commit = git::resolve(&machine.repo, &machine.git_ref)?;
     let file = dirs.machine_file();
     machine.save(&file)?;
     println!(

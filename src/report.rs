@@ -54,8 +54,8 @@ impl Report {
         let dirs = Dirs::from_env()?;
         let machine = Machine::load(&dirs.machine_file())?;
         let state = State::load(&dirs.state_file())?;
-        let remote = git::ls_remote(&machine.repo, &machine.git_ref)?;
-        let snapshot = Snapshot::fetch(&machine.repo, &machine.git_ref)?;
+        let remote = git::resolve(&machine.repo, &machine.git_ref)?;
+        let snapshot = Snapshot::fetch(&machine.repo, &machine.git_ref, &remote)?;
         let text = std::fs::read_to_string(snapshot.path().join("agsync.yaml"))
             .map_err(|e| anyhow::anyhow!("agsync.yaml nao encontrado no repo: {e}"))?;
         let manifest = Manifest::parse(&text)?;
