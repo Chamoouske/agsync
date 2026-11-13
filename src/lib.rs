@@ -8,4 +8,5 @@ pub mod machine;
 pub mod manifest;
 pub mod mcp;
 pub mod paths;
+pub mod state;
 pub mod tmp;
