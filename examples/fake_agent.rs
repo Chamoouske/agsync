@@ -2,7 +2,9 @@
 //!
 //! Tests copy this binary as `codex` or `hermes` into a temp dir put first in `PATH`;
 //! the file name picks the agent. Each call appends its arguments as one JSON line to
-//! `$FAKE_AGENT_LOG`, then applies to the config file the effect the real CLI has.
+//! `$FAKE_AGENT_LOG` (agent name first), then applies to the config file the effect the real CLI has.
+//! The fake Hermes writes its YAML back as JSON (valid YAML): unlike the real one, it
+//! does not keep comments.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -11,11 +13,12 @@ use toml_edit::{Array, DocumentMut, InlineTable, Item, Table};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    log(&args);
     let exe = std::env::current_exe().unwrap();
     let agent = exe.file_stem().unwrap().to_string_lossy().to_string();
+    log(&agent, &args);
     let result = match agent.as_str() {
         "codex" => codex(&args),
+        "hermes" => hermes(&args),
         other => Err(format!("agente falso desconhecido: {other}")),
     };
     if let Err(e) = result {
@@ -24,7 +27,7 @@ fn main() {
     }
 }
 
-fn log(args: &[String]) {
+fn log(agent: &str, args: &[String]) {
     let Some(path) = std::env::var_os("FAKE_AGENT_LOG") else {
         return;
     };
@@ -33,7 +36,9 @@ fn log(args: &[String]) {
         .append(true)
         .open(path)
         .unwrap();
-    writeln!(file, "{}", serde_json::to_string(args).unwrap()).unwrap();
+    let mut line = vec![agent.to_string()];
+    line.extend_from_slice(args);
+    writeln!(file, "{}", serde_json::to_string(&line).unwrap()).unwrap();
 }
 
 fn env_dir(var: &str) -> PathBuf {
@@ -99,4 +104,34 @@ fn codex_entry(rest: &[&str]) -> Result<Table, String> {
         table.insert("env", toml_edit::value(env));
     }
     Ok(table)
+}
+
+fn hermes(args: &[String]) -> Result<(), String> {
+    let file = env_dir("HERMES_HOME").join("config.yaml");
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    let mut root: serde_json::Value = if text.trim().is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_saphyr::from_str(&text).map_err(|e| e.to_string())?
+    };
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        ["config", "set", path, value] => {
+            let (top, name) = path.split_once('.').ok_or("caminho sem ponto")?;
+            let value = serde_json::from_str(value)
+                .unwrap_or_else(|_| serde_json::Value::String(value.to_string()));
+            let map = root.as_object_mut().ok_or("raiz nao e mapa")?;
+            let section = map.entry(top).or_insert_with(|| serde_json::json!({}));
+            section[name] = value;
+        }
+        ["config", "unset", path] => {
+            let (top, name) = path.split_once('.').ok_or("caminho sem ponto")?;
+            if let Some(section) = root.get_mut(top).and_then(|s| s.as_object_mut()) {
+                section.remove(name);
+            }
+        }
+        _ => return Err(format!("hermes falso: comando nao suportado {args:?}")),
+    }
+    let yaml = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
+    std::fs::write(&file, yaml).map_err(|e| e.to_string())
 }

@@ -10,9 +10,11 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use common::{Env, count, git, path_with};
+use serde_json::{Value, json};
 
 const ENV_SECRET: &str = "fake-env-secret-333";
 const FILE_SECRET: &str = "fake-file-secret-444";
+const ENV_REF: &str = "${E2E_FAKE_ENV}";
 
 const CODEX_FIXTURE: &str = r#"# user comment that must survive
 model = "o3"
@@ -28,6 +30,18 @@ args = ["keep"]
 command = "manual-tool"
 args = ["mine"]
 "#;
+
+const HERMES_FIXTURE: &str = "# user comment
+model: hermes-model
+toolsets: [web, terminal]
+mcp_servers:
+  untouched:
+    command: manual-tool
+    args: [keep]
+  manual:
+    command: manual-tool
+    args: [mine]
+";
 
 /// Builds the fake agent example and copies it as each name into a fresh bin dir.
 fn fake_bin(env: &Env, names: &[&str]) -> PathBuf {
@@ -54,15 +68,18 @@ fn fake_bin(env: &Env, names: &[&str]) -> PathBuf {
     bin
 }
 
-fn calls(env: &Env) -> Vec<Vec<String>> {
+/// Calls the fake `agent` received, oldest first.
+fn calls(env: &Env, agent: &str) -> Vec<Vec<String>> {
     let text = std::fs::read_to_string(env.root.path().join("fake.log")).unwrap_or_default();
     text.lines()
-        .map(|line| serde_json::from_str(line).unwrap())
+        .map(|line| serde_json::from_str::<Vec<String>>(line).unwrap())
+        .filter(|call| call[0] == agent)
+        .map(|call| call[1..].to_vec())
         .collect()
 }
 
-fn last_calls(env: &Env, n: usize) -> Vec<Vec<String>> {
-    let all = calls(env);
+fn last_calls(env: &Env, agent: &str, n: usize) -> Vec<Vec<String>> {
+    let all = calls(env, agent);
     all[all.len().saturating_sub(n)..].to_vec()
 }
 
@@ -79,6 +96,15 @@ fn codex_servers(env: &Env) -> toml::Table {
     root["mcp_servers"].as_table().unwrap().clone()
 }
 
+fn hermes_root(env: &Env) -> Value {
+    let text = std::fs::read_to_string(env.hermes_dir.join("config.yaml")).unwrap();
+    serde_saphyr::from_str(&text).unwrap()
+}
+
+fn hermes_servers(env: &Env) -> serde_json::Map<String, Value> {
+    hermes_root(env)["mcp_servers"].as_object().unwrap().clone()
+}
+
 fn yaml(plain_arg: Option<&str>, extra: &str) -> String {
     let plain = match plain_arg {
         Some(arg) => {
@@ -92,10 +118,10 @@ profiles: [work]
 mcps:
 {plain}  envref:
     command: node
-    env: {{E2E_FAKE_ENV: "${{E2E_FAKE_ENV}}"}}
+    env: {{E2E_FAKE_ENV: "{ENV_REF}"}}
   renamed:
     command: node
-    env: {{TOKEN: "${{E2E_FAKE_ENV}}"}}
+    env: {{TOKEN: "{ENV_REF}"}}
   fileval:
     command: node
     env: {{TOKEN: "${{E2E_FAKE_FILE}}"}}
@@ -107,7 +133,7 @@ mcps:
 
 fn setup() -> Env {
     let mut env = Env::new();
-    let bin = fake_bin(&env, &["codex"]);
+    let bin = fake_bin(&env, &["codex", "hermes"]);
     env.path = Some(path_with(&["git", "sh"], &[bin]));
     let log = env.root.path().join("fake.log");
     env.vars = vec![
@@ -119,6 +145,7 @@ fn setup() -> Env {
     ];
     env.forbidden = vec![ENV_SECRET.to_string(), FILE_SECRET.to_string()];
     std::fs::write(env.codex_dir.join("config.toml"), CODEX_FIXTURE).unwrap();
+    std::fs::write(env.hermes_dir.join("config.yaml"), HERMES_FIXTURE).unwrap();
     git(&env.remote, &["init", "-q", "-b", "main"]);
     let skill = env.remote.join("skills").join("hello");
     std::fs::create_dir_all(&skill).unwrap();
@@ -138,19 +165,8 @@ fn setup() -> Env {
     env
 }
 
-#[test]
-fn codex_and_hermes_against_fake_clis() {
-    let env = setup();
-    let status = env.ok(&["status"]);
-    assert!(status.contains("codex:\n"), "{status}");
-    assert!(status.contains("mcp plain: adicionar"), "{status}");
-    assert!(
-        status.contains("claude: claude nao encontrado no PATH"),
-        "{status}"
-    );
-
-    env.ok(&["apply", "--yes"]);
-    let add_plain = strs(&[
+fn codex_add_plain(arg: &str) -> Vec<String> {
+    strs(&[
         "mcp",
         "add",
         "plain",
@@ -158,19 +174,29 @@ fn codex_and_hermes_against_fake_clis() {
         "MODE=fast",
         "--",
         "node",
-        "v1.js",
-    ]);
-    assert!(calls(&env).contains(&add_plain), "{:?}", calls(&env));
-    assert!(!calls(&env).iter().flatten().any(|w| w == "envref"));
-    let s = codex_servers(&env);
-    assert_eq!(
-        s["envref"]["env_vars"],
-        toml::Value::Array(vec!["E2E_FAKE_ENV".into()])
-    );
+        arg,
+    ])
+}
+
+fn hermes_set_plain(arg: &str) -> Vec<String> {
+    let entry = json!({"command": "node", "args": [arg], "env": {"MODE": "fast"}});
+    strs(&["config", "set", "mcp_servers.plain", &entry.to_string()])
+}
+
+fn assert_first_apply(env: &Env) {
+    assert!(calls(env, "codex").contains(&codex_add_plain("v1.js")));
+    assert!(!calls(env, "codex").iter().flatten().any(|w| w == "envref"));
+    let s = codex_servers(env);
+    let names = toml::Value::Array(vec!["E2E_FAKE_ENV".into()]);
+    assert_eq!(s["envref"]["env_vars"], names);
     assert!(s["envref"].get("env").is_none());
     assert_eq!(s["renamed"]["env"]["TOKEN"].as_str(), Some(ENV_SECRET));
     assert_eq!(s["fileval"]["env"]["TOKEN"].as_str(), Some(FILE_SECRET));
-    let text = codex_text(&env);
+    assert_eq!(
+        s["untouched"]["args"],
+        toml::Value::Array(vec!["keep".into()])
+    );
+    let text = codex_text(env);
     assert!(
         text.starts_with("# user comment that must survive"),
         "{text}"
@@ -179,75 +205,109 @@ fn codex_and_hermes_against_fake_clis() {
         text.contains("model = \"o4-mini\" # trailing comment"),
         "{text}"
     );
-    assert_eq!(
-        s["untouched"]["args"],
-        toml::Value::Array(vec!["keep".into()])
-    );
-    assert!(
-        env.home
-            .join(".agents")
-            .join("skills")
-            .join("hello")
-            .join("SKILL.md")
-            .is_file()
-    );
+
+    assert!(calls(env, "hermes").contains(&hermes_set_plain("v1.js")));
+    let h = hermes_servers(env);
+    assert_eq!(h["envref"]["env"]["E2E_FAKE_ENV"], ENV_REF);
+    assert_eq!(h["renamed"]["env"]["TOKEN"], ENV_REF);
+    assert_eq!(h["fileval"]["env"]["TOKEN"], FILE_SECRET);
+    assert_eq!(h["untouched"]["args"], json!(["keep"]));
+    let root = hermes_root(env);
+    assert_eq!(root["model"], "hermes-model");
+    assert_eq!(root["toolsets"], json!(["web", "terminal"]));
+
+    let agents_skill = env.home.join(".agents").join("skills").join("hello");
+    assert!(agents_skill.join("SKILL.md").is_file());
+    let hermes_skill = env.hermes_dir.join("skills").join("hello");
+    assert!(hermes_skill.join("SKILL.md").is_file());
     let state = env.state();
     assert!(
         !state.contains(ENV_SECRET) && !state.contains(FILE_SECRET),
         "{state}"
     );
-    assert!(env.ok(&["status"]).contains("codex:\n  nada a mudar"));
+}
+
+#[test]
+fn codex_and_hermes_against_fake_clis() {
+    let env = setup();
+    let status = env.ok(&["status"]);
+    assert!(status.contains("codex:\n"), "{status}");
+    assert!(status.contains("hermes:\n"), "{status}");
+    assert!(status.contains("mcp plain: adicionar"), "{status}");
+    assert!(
+        status.contains("claude: claude nao encontrado no PATH"),
+        "{status}"
+    );
+
+    env.ok(&["apply", "--yes"]);
+    assert_first_apply(&env);
+    let status = env.ok(&["status"]);
+    assert!(status.contains("codex:\n  nada a mudar"), "{status}");
+    assert!(status.contains("hermes:\n  nada a mudar"), "{status}");
 
     env.push(&yaml(Some("v2.js"), ""));
     assert!(env.ok(&["status"]).contains("mcp plain: atualizar"));
     env.ok(&["apply", "--yes"]);
-    let update = vec![
-        strs(&["mcp", "remove", "plain"]),
-        strs(&[
-            "mcp",
-            "add",
-            "plain",
-            "--env",
-            "MODE=fast",
-            "--",
-            "node",
-            "v2.js",
-        ]),
+    let codex_update = vec![strs(&["mcp", "remove", "plain"]), codex_add_plain("v2.js")];
+    assert_eq!(last_calls(&env, "codex", 2), codex_update);
+    let hermes_update = vec![
+        strs(&["config", "unset", "mcp_servers.plain"]),
+        hermes_set_plain("v2.js"),
     ];
-    assert_eq!(last_calls(&env, 2), update);
+    assert_eq!(last_calls(&env, "hermes", 2), hermes_update);
 
     let hacked = codex_text(&env).replace("[\"E2E_FAKE_ENV\"]", "[\"HACK\"]");
     std::fs::write(env.codex_dir.join("config.toml"), hacked).unwrap();
+    let mut root = hermes_root(&env);
+    root["mcp_servers"]["envref"]["command"] = json!("hacked");
+    std::fs::write(env.hermes_dir.join("config.yaml"), root.to_string()).unwrap();
     let status = env.ok(&["status"]);
-    assert!(status.contains("mcp envref: desvio manual"), "{status}");
+    assert_eq!(
+        status.matches("mcp envref: desvio manual").count(),
+        2,
+        "{status}"
+    );
     let backups = count(&env.data.join("backups"));
     env.ok(&["apply", "--yes"]);
     let env_vars = &codex_servers(&env)["envref"]["env_vars"];
     assert_eq!(env_vars, &toml::Value::Array(vec!["E2E_FAKE_ENV".into()]));
-    assert!(count(&env.data.join("backups")) > backups);
+    assert_eq!(hermes_servers(&env)["envref"]["command"], "node");
+    assert!(count(&env.data.join("backups")) >= backups + 2);
 
     let manual = "  manual:\n    command: node\n    args: [\"repo.js\"]\n";
     env.push(&yaml(Some("v2.js"), manual));
-    assert!(env.ok(&["status"]).contains("mcp manual: conflito"));
+    let status = env.ok(&["status"]);
+    assert_eq!(
+        status.matches("mcp manual: conflito").count(),
+        2,
+        "{status}"
+    );
     env.ok(&["apply", "--yes"]);
-    assert_eq!(
-        codex_servers(&env)["manual"]["args"],
-        toml::Value::Array(vec!["mine".into()])
-    );
+    let mine = toml::Value::Array(vec!["mine".into()]);
+    assert_eq!(codex_servers(&env)["manual"]["args"], mine);
+    assert_eq!(hermes_servers(&env)["manual"]["args"], json!(["mine"]));
     let adopted = env.ok(&["apply", "--yes", "--adopt"]);
-    assert!(adopted.contains("assumir"), "{adopted}");
-    assert_eq!(
-        codex_servers(&env)["manual"]["args"],
-        toml::Value::Array(vec!["repo.js".into()])
-    );
+    assert_eq!(adopted.matches("ok (assumir").count(), 2, "{adopted}");
+    let repo = toml::Value::Array(vec!["repo.js".into()]);
+    assert_eq!(codex_servers(&env)["manual"]["args"], repo);
+    assert_eq!(hermes_servers(&env)["manual"]["args"], json!(["repo.js"]));
 
     env.push(&yaml(None, manual));
     assert!(env.ok(&["status"]).contains("mcp plain: remover"));
     env.ok(&["apply", "--yes"]);
-    assert_eq!(last_calls(&env, 1), vec![strs(&["mcp", "remove", "plain"])]);
+    let codex_remove = vec![strs(&["mcp", "remove", "plain"])];
+    assert_eq!(last_calls(&env, "codex", 1), codex_remove);
+    let hermes_remove = vec![strs(&["config", "unset", "mcp_servers.plain"])];
+    assert_eq!(last_calls(&env, "hermes", 1), hermes_remove);
     let s = codex_servers(&env);
     assert!(!s.contains_key("plain"));
     assert!(s.contains_key("untouched") && s.contains_key("envref"));
     assert!(codex_text(&env).starts_with("# user comment that must survive"));
-    assert!(env.ok(&["status"]).contains("codex:\n  nada a mudar"));
+    let h = hermes_servers(&env);
+    assert!(!h.contains_key("plain"));
+    assert!(h.contains_key("untouched") && h.contains_key("envref"));
+    assert_eq!(hermes_root(&env)["model"], "hermes-model");
+    let status = env.ok(&["status"]);
+    assert!(status.contains("codex:\n  nada a mudar"), "{status}");
+    assert!(status.contains("hermes:\n  nada a mudar"), "{status}");
 }

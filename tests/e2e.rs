@@ -68,7 +68,8 @@ fn end_to_end_with_real_claude() {
     assert!(status.contains("env: TOKEN"), "{status}");
     assert!(status.contains("skill hello: adicionar"), "{status}");
     assert!(
-        status.contains("codex: codex nao encontrado no PATH"),
+        status.contains("codex: codex nao encontrado no PATH")
+            && status.contains("hermes: hermes nao encontrado no PATH"),
         "{status}"
     );
     assert!(!status.contains("home"), "{status}");
