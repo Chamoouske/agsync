@@ -1,10 +1,11 @@
 //! Shared end-to-end helpers: temp dirs for every config, local git repos as remotes.
 //!
-//! The real Claude config is never used: every `claude` and `agsync` run gets a temp
-//! `CLAUDE_CONFIG_DIR`.
+//! No real agent config is ever used: every `claude`, agent CLI and `agsync` run gets a
+//! temp home and temp config dirs for Claude Code, Codex, OpenCode and Hermes.
 
 #![allow(dead_code)]
 
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -17,12 +18,18 @@ pub struct Env {
     pub remote: PathBuf,
     pub config: PathBuf,
     pub data: PathBuf,
+    pub home: PathBuf,
     pub claude_dir: PathBuf,
+    pub codex_dir: PathBuf,
+    pub opencode_dir: PathBuf,
+    pub hermes_dir: PathBuf,
     pub tmp: PathBuf,
     /// Text that must never show up in agsync output.
     pub forbidden: Vec<String>,
     /// Extra environment for agsync and claude runs.
     pub vars: Vec<(String, String)>,
+    /// `PATH` for every run; the inherited one when `None`.
+    pub path: Option<OsString>,
 }
 
 impl Env {
@@ -37,23 +44,38 @@ impl Env {
             remote: dir("remote"),
             config: dir("config"),
             data: dir("data"),
+            home: dir("home"),
             claude_dir: dir("claude"),
+            codex_dir: dir("codex"),
+            opencode_dir: dir("opencode"),
+            hermes_dir: dir("hermes"),
             tmp: dir("tmp"),
             root,
             forbidden: Vec::new(),
             vars: Vec::new(),
+            path: None,
         }
     }
 
     pub fn isolate(&self, cmd: &mut Command) {
-        assert!(self.claude_dir.starts_with(std::env::temp_dir()));
+        assert!(self.root.path().starts_with(std::env::temp_dir()));
         cmd.env("CLAUDE_CONFIG_DIR", &self.claude_dir)
+            .env("CODEX_HOME", &self.codex_dir)
+            .env("AGSYNC_OPENCODE_CONFIG_DIR", &self.opencode_dir)
+            .env_remove("OPENCODE_CONFIG_DIR")
+            .env("HERMES_HOME", &self.hermes_dir)
+            .env("HOME", &self.home)
+            .env("USERPROFILE", &self.home)
+            .env("XDG_CONFIG_HOME", self.home.join(".config"))
             .env("AGSYNC_CONFIG_DIR", &self.config)
             .env("AGSYNC_DATA_DIR", &self.data)
             .env("TEMP", &self.tmp)
             .env("TMP", &self.tmp)
             .env("TMPDIR", &self.tmp)
             .stdin(Stdio::null());
+        if let Some(path) = &self.path {
+            cmd.env("PATH", path);
+        }
         for (key, value) in &self.vars {
             cmd.env(key, value);
         }
