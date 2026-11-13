@@ -126,6 +126,11 @@ fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 fn yaml(echo_arg: &str, extra_mcps: &str, skills: &str) -> String {
+    let skills = if skills.is_empty() {
+        " []\n".to_string()
+    } else {
+        format!("\n{skills}")
+    };
     format!(
         r#"version: 1
 profiles: [work, personal]
@@ -137,14 +142,7 @@ mcps:
   home:
     profiles: [personal]
     command: node
-  built:
-    command: node
-    source: {{git: "https://example.com/mcp.git", ref: v1.0.0}}
-{extra_mcps}skills:
-  - git: https://example.com/skills.git
-    ref: v2.0.0
-    path: sub/remote-skill
-{skills}"#
+{extra_mcps}skills:{skills}"#
     )
 }
 
@@ -185,11 +183,6 @@ fn end_to_end_with_real_claude() {
     assert!(status.contains("mcp echo: adicionar"), "{status}");
     assert!(status.contains("env: TOKEN"), "{status}");
     assert!(status.contains("skill hello: adicionar"), "{status}");
-    assert!(status.contains("mcp built: fonte git: marco 3"), "{status}");
-    assert!(
-        status.contains("skill remote-skill: fonte git: marco 3"),
-        "{status}"
-    );
     assert!(
         status.contains("codex: adaptador ainda nao implementado"),
         "{status}"

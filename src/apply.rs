@@ -1,5 +1,6 @@
 //! `agsync apply`: write planned changes, one item at a time.
 
+use std::collections::BTreeSet;
 use std::io::{BufRead, IsTerminal, Write};
 
 use crate::agent::link;
@@ -12,6 +13,7 @@ use crate::state::State;
 pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     let report = Report::build(adopt)?;
     report.print_changes();
+    report.print_builds();
     report.print_skipped();
     let mut state = report.state.clone();
     let pending = report.has_pending();
@@ -20,10 +22,11 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
         return report.snapshot.close();
     }
 
-    let mut failures = 0;
+    let failed_builds = run_builds(&report);
+    let mut failures = failed_builds.len();
     let mut mcp_written = false;
     for plan in &report.agents {
-        let outcome = apply_agent(plan, &report.dirs, &mut state);
+        let outcome = apply_agent(plan, &report.dirs, &mut state, &failed_builds);
         failures += outcome.failures;
         mcp_written |= outcome.mcp_written;
     }
@@ -41,6 +44,22 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
         anyhow::bail!("{failures} item(ns) falharam; os demais foram aplicados");
     }
     Ok(())
+}
+
+/// Runs each build; returns the names of the MCPs whose build failed (they are skipped).
+fn run_builds(report: &Report) -> BTreeSet<String> {
+    let mut failed = BTreeSet::new();
+    for job in &report.builds {
+        println!("build mcp {} ({})...", job.name, job.sha);
+        match job.run(&report.dirs.logs()) {
+            Ok(()) => println!("build mcp {}: ok", job.name),
+            Err(e) => {
+                eprintln!("mcp {}: {e:#}; item pulado", job.name);
+                failed.insert(job.name.clone());
+            }
+        }
+    }
+    failed
 }
 
 fn confirmed(yes: bool) -> anyhow::Result<bool> {
@@ -70,11 +89,21 @@ struct Outcome {
     mcp_written: bool,
 }
 
-fn apply_agent(plan: &AgentPlan, dirs: &Dirs, state: &mut State) -> Outcome {
+fn apply_agent(
+    plan: &AgentPlan,
+    dirs: &Dirs,
+    state: &mut State,
+    failed_builds: &BTreeSet<String>,
+) -> Outcome {
     let mut outcome = Outcome::default();
-    let writes = plan
+    let mcps: Vec<&Change> = plan
         .mcps
         .iter()
+        .filter(|c| !failed_builds.contains(&c.name))
+        .collect();
+    let writes = mcps
+        .iter()
+        .copied()
         .chain(&plan.skills)
         .any(|c| c.action.writes());
     if writes && let Err(e) = plan.adapter.backup(&dirs.backups()) {
@@ -82,7 +111,7 @@ fn apply_agent(plan: &AgentPlan, dirs: &Dirs, state: &mut State) -> Outcome {
         outcome.failures += 1;
         return outcome;
     }
-    for change in &plan.mcps {
+    for change in mcps {
         match apply_mcp(plan, change, state) {
             Ok(()) => outcome.mcp_written |= change.action.writes(),
             Err(e) => {

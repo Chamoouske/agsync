@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 
 use crate::deliver::{McpWant, missing_hint};
 use crate::hash::hash_dir;
-use crate::manifest::{GIT_SOURCE_SKIP, Manifest, selected, targets};
+use crate::manifest::{Manifest, Mcp, selected, targets};
 use crate::mcp::McpSpec;
 use crate::plan::Want;
+use crate::resolved::Resolved;
 use crate::secret::Secrets;
 use crate::state::{LinkMode, Tracked, state_key};
 
@@ -44,6 +45,7 @@ pub struct Context<'a> {
     pub root: &'a Path,
     pub active: &'a [String],
     pub secrets: &'a Secrets,
+    pub sources: &'a Resolved,
 }
 
 /// Entries one agent should have.
@@ -51,53 +53,56 @@ pub struct Context<'a> {
 pub struct Desired {
     pub mcps: BTreeMap<String, McpWant>,
     pub skills: BTreeMap<String, SkillSrc>,
-    /// Selected names left untouched this time (state and agent entry kept as they are).
-    pub held: BTreeSet<String>,
-    /// Why each held item was skipped.
+    /// Selected MCPs left untouched this time (state and agent entry kept as they are).
+    pub held_mcps: BTreeSet<String>,
+    /// Selected skills left untouched this time.
+    pub held_skills: BTreeSet<String>,
+    /// Why each MCP held for this agent was skipped (source problems are in [`Resolved`]).
     pub skipped: Vec<String>,
 }
 
 impl Desired {
-    /// Selected entries for `agent`. Items with a git source are left out.
+    /// Selected entries for `agent`.
     /// `expands_refs`: the agent expands `${VAR}` from its own environment.
     pub fn for_agent(ctx: &Context, agent: &str, expands_refs: bool) -> anyhow::Result<Desired> {
-        let mut desired = Desired::default();
+        let mut desired = Desired {
+            held_mcps: ctx.sources.held_mcps.clone(),
+            held_skills: ctx.sources.held_skills.clone(),
+            ..Desired::default()
+        };
         for (name, mcp) in &ctx.manifest.mcps {
             let mcp = &mcp.value;
             let wanted = selected(&mcp.profiles, ctx.active) && targets(&mcp.agents, agent);
-            if !wanted || mcp.has_git_source() {
+            if !wanted || desired.held_mcps.contains(name) {
                 continue;
             }
-            let shown = McpSpec::from_manifest(mcp);
-            match McpWant::new(shown, ctx.secrets, expands_refs, None) {
+            let (shown, sha) = mcp_spec(name, mcp, ctx.sources);
+            match McpWant::new(shown, ctx.secrets, expands_refs, sha) {
                 Ok(want) => {
                     desired.mcps.insert(name.clone(), want);
                 }
-                Err(missing) => desired.hold(name, agent, &missing),
+                Err(missing) => desired.hold_mcp(name, agent, &missing),
             }
         }
         for skill in &ctx.manifest.skills {
             let skill = &skill.value;
+            let name = skill.name();
             let wanted = selected(&skill.profiles, ctx.active) && targets(&skill.agents, agent);
-            let Some(path) = &skill.path else {
+            if !wanted || desired.held_skills.contains(&name) {
                 continue;
-            };
-            if wanted && skill.git.is_none() {
-                let dir = ctx.root.join(path);
-                let hash = hash_dir(&dir)?;
-                let src = SkillSrc {
-                    dir,
-                    hash,
-                    sha: None,
-                };
-                desired.skills.insert(skill.name(), src);
             }
+            let (dir, sha) = match ctx.sources.skills.get(&name) {
+                Some(src) if skill.git.is_some() => (src.dir.clone(), Some(src.sha.clone())),
+                _ => (ctx.root.join(skill.path.as_deref().unwrap_or("")), None),
+            };
+            let hash = hash_dir(&dir)?;
+            desired.skills.insert(name, SkillSrc { dir, hash, sha });
         }
         Ok(desired)
     }
 
-    fn hold(&mut self, name: &str, agent: &str, missing: &[String]) {
-        self.held.insert(name.to_string());
+    fn hold_mcp(&mut self, name: &str, agent: &str, missing: &[String]) {
+        self.held_mcps.insert(name.to_string());
         for var in missing {
             self.skipped
                 .push(format!("{agent}: mcp {name}: {}", missing_hint(var)));
@@ -119,25 +124,19 @@ impl Desired {
     }
 }
 
-/// Selected items skipped in this milestone, with the reason.
-pub fn skipped_git_items(manifest: &Manifest, active: &[String]) -> Vec<String> {
-    let mut skipped = Vec::new();
-    for (name, mcp) in &manifest.mcps {
-        if mcp.value.has_git_source() && selected(&mcp.value.profiles, active) {
-            skipped.push(format!("mcp {name}: {GIT_SOURCE_SKIP}"));
-        }
+/// Entry as written in the manifest, with `{dir}` pointing at the source checkout.
+fn mcp_spec(name: &str, mcp: &Mcp, sources: &Resolved) -> (McpSpec, Option<String>) {
+    let spec = McpSpec::from_manifest(mcp);
+    match sources.mcps.get(name) {
+        Some(src) if mcp.has_git_source() => (spec.with_dir(&src.dir), Some(src.sha.clone())),
+        _ => (spec, None),
     }
-    for skill in &manifest.skills {
-        if skill.value.git.is_some() && selected(&skill.value.profiles, active) {
-            skipped.push(format!("skill {}: {GIT_SOURCE_SKIP}", skill.value.name()));
-        }
-    }
-    skipped
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resolved::{McpSource, SkillSource};
     use crate::tmp::TempDir;
 
     const YAML: &str = r#"
@@ -156,58 +155,113 @@ mcps:
     agents: [codex]
     command: d
   built:
-    command: e
+    command: "{dir}/srv"
     source: {git: "https://x", ref: v1}
 skills:
   - path: skills/hello
   - path: skills/home
     profiles: [personal]
-  - git: https://x/remote-skill.git
+  - git: https://x/remote.git
     ref: v2
+    path: sub/remote-skill
 "#;
-
-    fn desired(tmp: &TempDir, m: &Manifest, active: &[String], agent: &str) -> Desired {
-        let secrets = Secrets::default();
-        let ctx = Context {
-            manifest: m,
-            root: tmp.path(),
-            active,
-            secrets: &secrets,
-        };
-        Desired::for_agent(&ctx, agent, true).unwrap()
-    }
 
     fn setup() -> (TempDir, Manifest) {
         let tmp = TempDir::new("agsync-test").unwrap();
-        for name in ["hello", "home"] {
-            let dir = tmp.path().join("skills").join(name);
+        for name in ["skills/hello", "skills/home", "checkout/sub/remote-skill"] {
+            let dir = tmp.path().join(name);
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("SKILL.md"), name).unwrap();
         }
         (tmp, Manifest::parse(YAML).unwrap())
     }
 
-    #[test]
-    fn selects_by_profile_and_agent() {
-        let (tmp, m) = setup();
-        let active = vec!["work".to_string()];
-        let claude = desired(&tmp, &m, &active, "claude");
-        let mcps: Vec<_> = claude.mcps.keys().map(String::as_str).collect();
-        assert_eq!(mcps, ["all", "work_only"]);
-        let skills: Vec<_> = claude.skills.keys().map(String::as_str).collect();
-        assert_eq!(skills, ["hello"]);
+    fn sources(tmp: &TempDir) -> Resolved {
+        let mut resolved = Resolved::default();
+        let mcp = McpSource {
+            sha: "a".repeat(40),
+            dir: PathBuf::from("/data/sources/built/aaa"),
+            job: None,
+        };
+        resolved.mcps.insert("built".into(), mcp);
+        let skill = SkillSource {
+            sha: "b".repeat(40),
+            dir: tmp.path().join("checkout/sub/remote-skill"),
+        };
+        resolved.skills.insert("remote-skill".into(), skill);
+        resolved
+    }
 
-        let codex = desired(&tmp, &m, &active, "codex");
-        assert!(codex.mcps.contains_key("codex_only"));
+    fn desired(
+        tmp: &TempDir,
+        m: &Manifest,
+        src: &Resolved,
+        active: &[&str],
+        agent: &str,
+    ) -> Desired {
+        let secrets = Secrets::default();
+        let active: Vec<String> = active.iter().map(|s| s.to_string()).collect();
+        let ctx = Context {
+            manifest: m,
+            root: tmp.path(),
+            active: &active,
+            secrets: &secrets,
+            sources: src,
+        };
+        Desired::for_agent(&ctx, agent, true).unwrap()
+    }
+
+    fn names<T>(map: &BTreeMap<String, T>) -> Vec<&str> {
+        map.keys().map(String::as_str).collect()
     }
 
     #[test]
-    fn several_active_profiles_add_up() {
+    fn selects_by_profile_and_agent() {
         let (tmp, m) = setup();
-        let active = vec!["work".to_string(), "personal".to_string()];
-        let d = desired(&tmp, &m, &active, "claude");
-        assert_eq!(d.mcps.len(), 3);
-        assert_eq!(d.skills.len(), 2);
+        let src = sources(&tmp);
+        let claude = desired(&tmp, &m, &src, &["work"], "claude");
+        assert_eq!(names(&claude.mcps), ["all", "built", "work_only"]);
+        assert_eq!(names(&claude.skills), ["hello", "remote-skill"]);
+
+        let codex = desired(&tmp, &m, &src, &["work"], "codex");
+        assert!(codex.mcps.contains_key("codex_only"));
+
+        let both = desired(&tmp, &m, &src, &["work", "personal"], "claude");
+        assert_eq!(both.mcps.len(), 4);
+        assert_eq!(both.skills.len(), 3);
+    }
+
+    #[test]
+    fn git_items_use_checkout_and_sha() {
+        let (tmp, m) = setup();
+        let src = sources(&tmp);
+        let d = desired(&tmp, &m, &src, &[], "claude");
+        let built = &d.mcps["built"];
+        let json = built.write.to_json();
+        assert!(
+            json.contains("aaa/srv") || json.contains("aaa\\\\srv"),
+            "{json}"
+        );
+        assert_eq!(built.sha, Some("a".repeat(40)));
+        assert!(built.want().key.ends_with(&"a".repeat(40)));
+        let skill = &d.skills["remote-skill"];
+        assert_eq!(skill.sha, Some("b".repeat(40)));
+        assert_eq!(skill.dir, tmp.path().join("checkout/sub/remote-skill"));
+    }
+
+    #[test]
+    fn held_sources_are_left_out() {
+        let (tmp, m) = setup();
+        let mut src = sources(&tmp);
+        src.mcps.clear();
+        src.held_mcps.insert("built".into());
+        src.skills.clear();
+        src.held_skills.insert("remote-skill".into());
+        let d = desired(&tmp, &m, &src, &[], "claude");
+        assert!(!d.mcps.contains_key("built"));
+        assert!(d.held_mcps.contains("built"));
+        assert!(!d.skills.contains_key("remote-skill"));
+        assert!(d.held_skills.contains("remote-skill"));
     }
 
     #[test]
@@ -215,27 +269,14 @@ skills:
         let tmp = TempDir::new("agsync-test").unwrap();
         let yaml = "version: 1\nmcps:\n  a:\n    command: x\n    env: {T: \"${AGSYNC_TEST_NEVER_SET}\"}\n  b:\n    command: y\n";
         let m = Manifest::parse(yaml).unwrap();
-        let d = desired(&tmp, &m, &[], "claude");
+        let d = desired(&tmp, &m, &Resolved::default(), &[], "claude");
         assert!(d.mcps.contains_key("b"));
         assert!(!d.mcps.contains_key("a"));
-        assert!(d.held.contains("a"));
+        assert!(d.held_mcps.contains("a"));
         assert!(
             d.skipped[0].contains("AGSYNC_TEST_NEVER_SET"),
             "{:?}",
             d.skipped
-        );
-    }
-
-    #[test]
-    fn git_items_are_skipped_with_reason() {
-        let (_tmp, m) = setup();
-        let skipped = skipped_git_items(&m, &["work".to_string()]);
-        assert_eq!(
-            skipped,
-            [
-                "mcp built: fonte git: marco 3",
-                "skill remote-skill: fonte git: marco 3"
-            ]
         );
     }
 }

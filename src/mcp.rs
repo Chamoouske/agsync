@@ -1,6 +1,7 @@
 //! Agent-neutral MCP server model.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -61,6 +62,22 @@ impl McpSpec {
                 url: f(url),
                 headers: map(headers),
             },
+        }
+    }
+
+    /// Replaces `{dir}` in command, args and env values with the checkout folder.
+    pub fn with_dir(&self, dir: &Path) -> McpSpec {
+        let dir = dir.display().to_string();
+        match self {
+            McpSpec::Stdio { command, args, env } => McpSpec::Stdio {
+                command: command.replace("{dir}", &dir),
+                args: args.iter().map(|a| a.replace("{dir}", &dir)).collect(),
+                env: env
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.replace("{dir}", &dir)))
+                    .collect(),
+            },
+            McpSpec::Http { .. } => self.clone(),
         }
     }
 
@@ -167,6 +184,27 @@ mcps:
             headers: BTreeMap::from([("Authorization".to_string(), "Bearer ${H}".to_string())]),
         };
         assert_eq!(http.secret_refs(), ["U", "H"]);
+    }
+
+    #[test]
+    fn dir_is_replaced_in_command_args_and_env_only() {
+        let spec = McpSpec::Stdio {
+            command: "{dir}/bin/srv".into(),
+            args: vec!["--root={dir}".into(), "plain".into()],
+            env: BTreeMap::from([("{dir}".to_string(), "{dir}/data".to_string())]),
+        };
+        let dir = Path::new("/abs/sources/srv/abc");
+        let McpSpec::Stdio { command, args, env } = spec.with_dir(dir) else {
+            panic!("stdio expected");
+        };
+        assert_eq!(command, "/abs/sources/srv/abc/bin/srv");
+        assert_eq!(args, ["--root=/abs/sources/srv/abc", "plain"]);
+        assert_eq!(env["{dir}"], "/abs/sources/srv/abc/data");
+        let http = McpSpec::Http {
+            url: "https://x/{dir}".into(),
+            headers: BTreeMap::new(),
+        };
+        assert_eq!(http.with_dir(dir), http);
     }
 
     #[test]

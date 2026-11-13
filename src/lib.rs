@@ -15,6 +15,7 @@ pub mod mcp;
 pub mod paths;
 pub mod plan;
 pub mod report;
+pub mod resolved;
 pub mod secret;
 pub mod source;
 pub mod state;

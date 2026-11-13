@@ -9,9 +9,6 @@ use serde_saphyr::Spanned;
 /// Agents an item can target.
 pub const AGENTS: [&str; 4] = ["claude", "codex", "opencode", "hermes"];
 
-/// Reason shown for items whose source is a git repo.
-pub const GIT_SOURCE_SKIP: &str = "fonte git: marco 3";
-
 /// Root of `agsync.yaml`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -39,7 +36,7 @@ pub struct Mcp {
     pub source: Option<Source>,
 }
 
-/// Git source to build an MCP server from (milestone 3).
+/// Git source to build an MCP server from.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Source {
@@ -111,6 +108,15 @@ impl Manifest {
             let name = self
                 .validate_skill(&skill.value)
                 .map_err(|e| anyhow::anyhow!("agsync.yaml linha {line}: skill: {e}"))?;
+            let git_mcp = self
+                .mcps
+                .get(&name)
+                .is_some_and(|m| m.value.source.is_some());
+            if skill.value.git.is_some() && git_mcp {
+                anyhow::bail!(
+                    "agsync.yaml linha {line}: skill '{name}' tem o mesmo nome de um mcp com source; use name"
+                );
+            }
             if let Some(first) = names.insert(name.clone(), line) {
                 anyhow::bail!(
                     "agsync.yaml linha {line}: skill '{name}' repetida (ja definida na linha {first})"
@@ -147,8 +153,8 @@ impl Manifest {
         if skill.git.is_some() {
             check_ref(skill.git_ref.as_deref(), "git")?;
         }
-        if skill.git.is_none() && skill.path.is_none() {
-            anyhow::bail!("defina path (pasta no repo) ou git");
+        if skill.path.is_none() {
+            anyhow::bail!("defina path (pasta no repo de config ou no repo git)");
         }
         if skill.git.is_none() && skill.git_ref.is_some() {
             anyhow::bail!("ref so vale com git");
@@ -172,7 +178,7 @@ impl Manifest {
 }
 
 impl Mcp {
-    /// True when the server must be built from a git source (milestone 3).
+    /// True when the server is built from a git source.
     pub fn has_git_source(&self) -> bool {
         self.source.is_some()
     }
@@ -350,6 +356,23 @@ skills:
         assert!(err(name).contains("invalido"));
         let path = "version: 1\nskills:\n  - path: ../fora\n";
         assert!(err(path).contains("relativo"));
+    }
+
+    #[test]
+    fn git_skill_needs_path_and_its_own_name() {
+        let no_path = "version: 1\nskills:\n  - git: https://x/s.git\n    ref: v1\n";
+        assert!(err(no_path).contains("defina path"));
+        let clash = r#"version: 1
+mcps:
+  s:
+    command: x
+    source: {git: "https://x", ref: v1}
+skills:
+  - git: https://x/s.git
+    ref: v1
+    path: a/s
+"#;
+        assert!(err(clash).contains("mesmo nome"));
     }
 
     #[test]
