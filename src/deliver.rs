@@ -1,20 +1,13 @@
 //! Turning an MCP entry with `${VAR}` references into what one agent gets.
 
 use crate::hash::hash_bytes;
-use crate::mcp::McpSpec;
+use crate::mcp::{McpSpec, RefSpot};
 use crate::plan::Want;
-use crate::secret::{Origin, Secrets, substitute, whole_ref};
+use crate::secret::{Origin, Secrets, substitute};
 use crate::state::{Tracked, state_key};
 
-/// Where an agent can take a `${VAR}` reference and expand it from its own environment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RefStyle {
-    /// In any string of the entry (Claude Code, OpenCode, Hermes).
-    Anywhere,
-    /// Codex: only an env value that is exactly `${KEY}` for its own key, a header value
-    /// that is exactly `${VAR}`, and `Authorization: Bearer ${VAR}`.
-    Codex,
-}
+/// The agent's answer to "may a `${VAR}` at this spot stay a reference?"
+pub type KeepsRef<'a> = &'a dyn Fn(RefSpot<'_>) -> bool;
 
 /// One MCP server as agsync wants it in one agent.
 #[derive(Debug, Clone)]
@@ -31,12 +24,12 @@ pub struct McpWant {
 
 impl McpWant {
     /// Resolves every `${VAR}`. A variable from the user's environment stays a reference
-    /// where the agent's `style` allows one; otherwise its value is written.
+    /// at the spots `keeps_ref` accepts; otherwise its value is written.
     /// Returns the missing variable names when any is undefined.
     pub fn new(
         shown: McpSpec,
         secrets: &Secrets,
-        style: RefStyle,
+        keeps_ref: KeepsRef,
         sha: Option<String>,
     ) -> Result<McpWant, Vec<String>> {
         let mut origins = Vec::new();
@@ -50,7 +43,7 @@ impl McpWant {
         if !missing.is_empty() {
             return Err(missing);
         }
-        let write = written(&shown, secrets, style);
+        let write = written(&shown, secrets, keeps_ref);
         let hash = state_hash(&shown, &origins);
         Ok(McpWant {
             shown,
@@ -81,8 +74,9 @@ pub fn missing_hint(name: &str) -> String {
     format!("segredo {name} ausente; defina com `agsync secret set {name}` ou exporte {name}")
 }
 
-/// The entry with each `${VAR}` either kept (user environment, allowed spot) or resolved.
-fn written(shown: &McpSpec, secrets: &Secrets, style: RefStyle) -> McpSpec {
+/// The entry with each `${VAR}` either kept (user environment, at a spot the agent
+/// accepts a reference) or resolved to its value.
+fn written(shown: &McpSpec, secrets: &Secrets, keeps_ref: KeepsRef) -> McpSpec {
     let values = |text: &str| substitute(text, |name| secrets.lookup(name).map(|(_, v)| v));
     let refs = |text: &str| {
         substitute(text, |name| match secrets.lookup(name) {
@@ -90,38 +84,10 @@ fn written(shown: &McpSpec, secrets: &Secrets, style: RefStyle) -> McpSpec {
             other => other.map(|(_, v)| v),
         })
     };
-    if style == RefStyle::Anywhere {
-        return shown.map_strings(refs);
-    }
-    let from_env = |text: &str| {
-        whole_ref(text).is_some_and(|name| matches!(secrets.lookup(name), Some((Origin::Env, _))))
-    };
-    match shown {
-        McpSpec::Stdio { command, args, env } => McpSpec::Stdio {
-            command: values(command),
-            args: args.iter().map(|a| values(a)).collect(),
-            env: env
-                .iter()
-                .map(|(key, value)| {
-                    let keep = from_env(value) && whole_ref(value) == Some(key.as_str());
-                    let value = if keep { value.clone() } else { values(value) };
-                    (key.clone(), value)
-                })
-                .collect(),
-        },
-        McpSpec::Http { url, headers } => McpSpec::Http {
-            url: values(url),
-            headers: headers
-                .iter()
-                .map(|(key, value)| {
-                    let bearer = value.strip_prefix("Bearer ").is_some_and(from_env);
-                    let keep = from_env(value) || (key == "Authorization" && bearer);
-                    let value = if keep { value.clone() } else { values(value) };
-                    (key.clone(), value)
-                })
-                .collect(),
-        },
-    }
+    shown.map_spots(|spot| match keeps_ref(spot) {
+        true => refs(spot.text()),
+        false => values(spot.text()),
+    })
 }
 
 fn state_hash(shown: &McpSpec, origins: &[(String, Origin)]) -> String {
@@ -140,6 +106,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::agent::codex;
 
     const ENV_VAR: &str = "AGSYNC_TEST_DELIVER_ENV";
 
@@ -159,17 +126,16 @@ mod tests {
     #[test]
     fn env_refs_stay_for_expanding_agents_and_file_values_are_written() {
         unsafe { std::env::set_var(ENV_VAR, "env-value") };
-        let want = McpWant::new(spec(), &secrets("file-value"), RefStyle::Anywhere, None).unwrap();
+        let want = McpWant::new(spec(), &secrets("file-value"), &|_| true, None).unwrap();
         let json = want.write.to_json();
         assert!(json.contains(&format!("--a=${{{ENV_VAR}}}")), "{json}");
         assert!(json.contains("--b=file-value"), "{json}");
         assert!(json.contains(r#""T":"file-value""#), "{json}");
 
-        let codex = McpWant::new(spec(), &secrets("file-value"), RefStyle::Codex, None).unwrap();
+        let codex = McpWant::new(spec(), &secrets("file-value"), &codex::keeps_ref, None).unwrap();
         assert!(codex.write.to_json().contains("--a=env-value"));
 
-        let rotated =
-            McpWant::new(spec(), &secrets("other-value"), RefStyle::Anywhere, None).unwrap();
+        let rotated = McpWant::new(spec(), &secrets("other-value"), &|_| true, None).unwrap();
         assert_eq!(rotated.hash, want.hash);
         assert_ne!(rotated.want().write, want.want().write);
         assert!(!want.hash.contains("file-value"));
@@ -178,8 +144,7 @@ mod tests {
 
     #[test]
     fn missing_secrets_are_listed() {
-        let missing =
-            McpWant::new(spec(), &Secrets::default(), RefStyle::Anywhere, None).unwrap_err();
+        let missing = McpWant::new(spec(), &Secrets::default(), &|_| true, None).unwrap_err();
         assert!(missing.contains(&"FILE_ONLY".to_string()));
         assert!(missing_hint("X").contains("agsync secret set X"));
     }
@@ -193,7 +158,7 @@ mod tests {
         let want = McpWant::new(
             plain.clone(),
             &Secrets::default(),
-            RefStyle::Anywhere,
+            &|_| true,
             Some("abc".into()),
         );
         let want = want.unwrap();
@@ -215,7 +180,7 @@ mod tests {
                 ("FILE".to_string(), "${FILE_ONLY}".to_string()),
             ]),
         };
-        let want = McpWant::new(stdio, &secrets("file-value"), RefStyle::Codex, None).unwrap();
+        let want = McpWant::new(stdio, &secrets("file-value"), &codex::keeps_ref, None).unwrap();
         let McpSpec::Stdio { args, env, .. } = &want.write else {
             panic!("stdio expected");
         };
@@ -233,7 +198,7 @@ mod tests {
                 ("X-File".to_string(), "${FILE_ONLY}".to_string()),
             ]),
         };
-        let want = McpWant::new(http, &secrets("file-value"), RefStyle::Codex, None).unwrap();
+        let want = McpWant::new(http, &secrets("file-value"), &codex::keeps_ref, None).unwrap();
         let McpSpec::Http { url, headers } = &want.write else {
             panic!("http expected");
         };

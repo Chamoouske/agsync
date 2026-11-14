@@ -87,7 +87,7 @@ impl Report {
                     continue;
                 }
             };
-            let desired = Desired::for_agent(&ctx, agent, adapter.ref_style())?;
+            let desired = Desired::for_agent(&ctx, agent, &|spot| adapter.keeps_ref(spot))?;
             skipped.extend(desired.skipped.iter().cloned());
             let tracked = state.agent(agent);
             let mut mcps = plan(

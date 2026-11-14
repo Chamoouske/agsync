@@ -45,22 +45,24 @@ impl McpSpec {
         serde_json::to_string(self).unwrap_or_default()
     }
 
-    /// Same entry with `f` applied to command, args, env values, url and header values.
-    pub fn map_strings(&self, f: impl Fn(&str) -> String) -> McpSpec {
-        let map = |m: &BTreeMap<String, String>| {
-            m.iter()
-                .map(|(k, v)| (k.clone(), f(v)))
-                .collect::<BTreeMap<_, _>>()
-        };
+    /// Same entry with each command, arg, env value, url and header value replaced by
+    /// `f` of its spot. Keys stay as they are.
+    pub fn map_spots(&self, f: impl Fn(RefSpot<'_>) -> String) -> McpSpec {
         match self {
             McpSpec::Stdio { command, args, env } => McpSpec::Stdio {
-                command: f(command),
-                args: args.iter().map(|a| f(a)).collect(),
-                env: map(env),
+                command: f(RefSpot::Command(command)),
+                args: args.iter().map(|a| f(RefSpot::Arg(a))).collect(),
+                env: env
+                    .iter()
+                    .map(|(key, value)| (key.clone(), f(RefSpot::Env { key, value })))
+                    .collect(),
             },
             McpSpec::Http { url, headers } => McpSpec::Http {
-                url: f(url),
-                headers: map(headers),
+                url: f(RefSpot::Url(url)),
+                headers: headers
+                    .iter()
+                    .map(|(key, value)| (key.clone(), f(RefSpot::Header { key, value })))
+                    .collect(),
             },
         }
     }
@@ -123,6 +125,26 @@ impl McpSpec {
                 }
                 text
             }
+        }
+    }
+}
+
+/// Where a string sits in an MCP entry, with the string itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefSpot<'a> {
+    Command(&'a str),
+    Arg(&'a str),
+    Env { key: &'a str, value: &'a str },
+    Url(&'a str),
+    Header { key: &'a str, value: &'a str },
+}
+
+impl RefSpot<'_> {
+    /// The string at this spot.
+    pub fn text(&self) -> &str {
+        match self {
+            RefSpot::Command(text) | RefSpot::Arg(text) | RefSpot::Url(text) => text,
+            RefSpot::Env { value, .. } | RefSpot::Header { value, .. } => value,
         }
     }
 }

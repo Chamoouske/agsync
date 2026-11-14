@@ -16,9 +16,8 @@ use anyhow::Context;
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table};
 
 use super::{Adapter, backup, cli, link};
-use crate::deliver::RefStyle;
 use crate::hash::hash_bytes;
-use crate::mcp::McpSpec;
+use crate::mcp::{McpSpec, RefSpot};
 use crate::secret::whole_ref;
 use crate::state::LinkMode;
 
@@ -107,8 +106,8 @@ impl Codex {
 }
 
 impl Adapter for Codex {
-    fn ref_style(&self) -> RefStyle {
-        RefStyle::Codex
+    fn keeps_ref(&self, spot: RefSpot<'_>) -> bool {
+        keeps_ref(spot)
     }
 
     fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>> {
@@ -160,6 +159,20 @@ impl Adapter for Codex {
 
     fn remove_skill(&self, name: &str, backups: &Path) -> anyhow::Result<()> {
         link::clear(&self.skills_dir.join(name), backups)
+    }
+}
+
+/// Codex expands a variable only in its own fields: an env value that is exactly
+/// `${KEY}` for its own key (`env_vars`), a header value that is exactly `${VAR}`
+/// (`env_http_headers`) and `Authorization: Bearer ${VAR}` (`bearer_token_env_var`).
+pub fn keeps_ref(spot: RefSpot<'_>) -> bool {
+    match spot {
+        RefSpot::Env { key, value } => whole_ref(value) == Some(key),
+        RefSpot::Header { key, value } => {
+            let bearer = value.strip_prefix("Bearer ").and_then(whole_ref);
+            whole_ref(value).is_some() || (key == "Authorization" && bearer.is_some())
+        }
+        _ => false,
     }
 }
 

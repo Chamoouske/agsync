@@ -21,7 +21,6 @@ use jsonc_parser::cst::CstRootNode;
 use serde_json::Value;
 
 use super::{Adapter, backup, cli, link};
-use crate::deliver::RefStyle;
 use crate::hash::hash_bytes;
 use crate::mcp::McpSpec;
 use crate::secret::{substitute, valid_name};
@@ -109,10 +108,6 @@ impl OpenCode {
 }
 
 impl Adapter for OpenCode {
-    fn ref_style(&self) -> RefStyle {
-        RefStyle::Anywhere
-    }
-
     fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>> {
         let servers = self.servers()?;
         Ok(servers

@@ -17,7 +17,6 @@ use anyhow::Context;
 use serde_json::{Value, json};
 
 use super::{Adapter, backup, cli, link};
-use crate::deliver::RefStyle;
 use crate::hash::hash_bytes;
 use crate::mcp::McpSpec;
 use crate::state::LinkMode;
@@ -75,10 +74,6 @@ impl Hermes {
 }
 
 impl Adapter for Hermes {
-    fn ref_style(&self) -> RefStyle {
-        RefStyle::Anywhere
-    }
-
     fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>> {
         let servers = self.servers()?;
         Ok(servers

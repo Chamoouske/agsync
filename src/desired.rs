@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use crate::deliver::{McpWant, RefStyle, missing_hint};
+use crate::deliver::{KeepsRef, McpWant, missing_hint};
 use crate::hash::hash_dir;
 use crate::manifest::{Manifest, Mcp, selected, targets};
 use crate::mcp::McpSpec;
@@ -63,8 +63,8 @@ pub struct Desired {
 
 impl Desired {
     /// Selected entries for `agent`.
-    /// `style`: where the agent takes `${VAR}` references instead of values.
-    pub fn for_agent(ctx: &Context, agent: &str, style: RefStyle) -> anyhow::Result<Desired> {
+    /// `keeps_ref`: the agent's rule for where a `${VAR}` reference may stay.
+    pub fn for_agent(ctx: &Context, agent: &str, keeps_ref: KeepsRef) -> anyhow::Result<Desired> {
         let mut desired = Desired {
             held_mcps: ctx.sources.held_mcps.clone(),
             held_skills: ctx.sources.held_skills.clone(),
@@ -77,7 +77,7 @@ impl Desired {
                 continue;
             }
             let (shown, sha) = mcp_spec(name, mcp, ctx.sources);
-            match McpWant::new(shown, ctx.secrets, style, sha) {
+            match McpWant::new(shown, ctx.secrets, keeps_ref, sha) {
                 Ok(want) => {
                     desired.mcps.insert(name.clone(), want);
                 }
@@ -208,7 +208,7 @@ skills:
             secrets: &secrets,
             sources: src,
         };
-        Desired::for_agent(&ctx, agent, RefStyle::Anywhere).unwrap()
+        Desired::for_agent(&ctx, agent, &|_| true).unwrap()
     }
 
     fn names<T>(map: &BTreeMap<String, T>) -> Vec<&str> {

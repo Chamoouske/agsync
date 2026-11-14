@@ -12,7 +12,6 @@ use std::process::Command;
 use anyhow::Context;
 
 use super::{Adapter, backup, cli, link};
-use crate::deliver::RefStyle;
 use crate::mcp::{McpSpec, hash_value};
 use crate::state::LinkMode;
 
@@ -76,10 +75,6 @@ impl Claude {
 }
 
 impl Adapter for Claude {
-    fn ref_style(&self) -> RefStyle {
-        RefStyle::Anywhere
-    }
-
     fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>> {
         let servers = self.servers()?;
         Ok(servers

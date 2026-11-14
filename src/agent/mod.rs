@@ -3,8 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::deliver::RefStyle;
-use crate::mcp::McpSpec;
+use crate::mcp::{McpSpec, RefSpot};
 use crate::state::LinkMode;
 
 pub mod backup;
@@ -17,8 +16,11 @@ pub mod opencode;
 
 /// What agsync needs from an agent's user-level config.
 pub trait Adapter {
-    /// Where the agent takes `${VAR}` references in MCP entries instead of values.
-    fn ref_style(&self) -> RefStyle;
+    /// True if a `${VAR}` at `spot` may stay a reference, for the agent to expand from
+    /// its own environment. By default every spot accepts one.
+    fn keeps_ref(&self, _spot: RefSpot<'_>) -> bool {
+        true
+    }
     /// Current MCP entries: name to content hash.
     fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>>;
     /// Current skill folders: name to content hash.
