@@ -1,0 +1,78 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: agsync.exe
+            asset: agsync-x86_64-pc-windows-msvc.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            binary: agsync
+            asset: agsync-x86_64-unknown-linux-musl
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Install the stable Rust toolchain for the target
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
+
+      - name: Install musl tools for the static Linux build
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build the release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Name the binary after its target
+        shell: bash
+        run: |
+          mkdir dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "dist/${{ matrix.asset }}"
+
+      - name: Upload the binary for the publish job
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download every binary
+        uses: actions/download-artifact@v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Write SHA256SUMS
+        working-directory: dist
+        run: sha256sum agsync-* > SHA256SUMS
+
+      - name: Publish the GitHub release with the binaries and SHA256SUMS
+        uses: softprops/action-gh-release@v2.2.2
+        with:
+          files: |
+            dist/agsync-x86_64-pc-windows-msvc.exe
+            dist/agsync-x86_64-unknown-linux-musl
+            dist/SHA256SUMS
+          generate_release_notes: true
