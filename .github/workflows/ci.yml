@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Install the stable Rust toolchain with rustfmt and clippy
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - name: Cache cargo registry and build output
+        uses: Swatinem/rust-cache@v2.8.0
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy with warnings as errors
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run every test
+        run: cargo test --no-fail-fast
