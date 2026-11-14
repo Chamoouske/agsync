@@ -10,14 +10,22 @@ use crate::paths::Dirs;
 use crate::pending::Pending;
 use crate::plan::{Action, Change};
 use crate::report::{AgentPlan, Report};
-use crate::resolved::Watched;
 use crate::state::State;
 use crate::watch::Watch;
 
-/// Shows the diff, asks for confirmation, applies, updates state, deletes the snapshot.
+/// What a clean write does last: `apply` settles the check, `rollback` does not.
+pub type AfterClean = fn(&Report) -> anyhow::Result<()>;
+
+/// `agsync apply`: plans the remote head and writes it.
 pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     let _lock = Lock::wait(&Dirs::from_env()?)?;
     let report = Report::build(adopt)?;
+    write(report, yes, settle_check).map(|_| ())
+}
+
+/// Shows the diff, asks for confirmation, applies, updates state, deletes the snapshot.
+/// Returns false when the user said no. The caller holds the lock.
+pub fn write(report: Report, yes: bool, after_clean: AfterClean) -> anyhow::Result<bool> {
     report.print_changes();
     report.print_builds();
     report.print_skipped();
@@ -26,7 +34,8 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     let pending = report.has_pending();
 
     if pending && !confirmed(yes)? {
-        return report.snapshot.close();
+        report.snapshot.close()?;
+        return Ok(false);
     }
     if pending {
         crate::secret::file::private_dir(&report.dirs.backups())?;
@@ -46,11 +55,11 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     }
     state.applied(&report.snapshot.commit);
     state.save(&report.dirs.state_file())?;
-    report.snapshot.close()?;
     if failures == 0 {
         clean_caches(&report.dirs, &state);
-        settle_check(&report.dirs, &report.remote, &report.watched)?;
+        after_clean(&report)?;
     }
+    report.snapshot.close()?;
 
     if !pending {
         println!("nada a aplicar");
@@ -64,17 +73,17 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     if failures > 0 {
         anyhow::bail!("{failures} item(ns) falharam; os demais foram aplicados");
     }
-    Ok(())
+    Ok(true)
 }
 
 /// After a clean apply nothing is pending, and `check` may stop early at this commit.
-fn settle_check(dirs: &Dirs, remote: &str, watched: &[Watched]) -> anyhow::Result<()> {
-    Pending::clear(&dirs.pending_file())?;
+fn settle_check(report: &Report) -> anyhow::Result<()> {
+    Pending::clear(&report.dirs.pending_file())?;
     let watch = Watch {
-        commit: remote.to_string(),
-        sources: watched.to_vec(),
+        commit: report.remote.clone(),
+        sources: report.watched.clone(),
     };
-    watch.save(&dirs.watch_file())
+    watch.save(&report.dirs.watch_file())
 }
 
 /// Deletes source checkouts and cached skills that no state entry uses.
