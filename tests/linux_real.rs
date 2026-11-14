@@ -111,6 +111,36 @@ skills:
     );
 }
 
+fn notification_daemon_running() -> bool {
+    let out = Command::new("dbus-send")
+        .args([
+            "--session",
+            "--print-reply",
+            "--dest=org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus.NameHasOwner",
+            "string:org.freedesktop.Notifications",
+        ])
+        .output();
+    out.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("boolean true"))
+}
+
+#[test]
+fn notify_send_shows_a_real_notification() {
+    use agsync::notify::Notifier;
+    let session =
+        std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
+    if agsync::which::find("notify-send").is_none() || !session || !notification_daemon_running() {
+        eprintln!(
+            "SKIP notify-send: precisa de notify-send, sessao grafica e um servidor de notificacoes no D-Bus"
+        );
+        return;
+    }
+    agsync::notify::notify_send::NotifySend
+        .notify("agsync", "teste do agsync: notify-send real")
+        .unwrap();
+}
+
 /// The directory holding each of `tools`, deduplicated.
 fn dirs_of(tools: &[&str]) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
