@@ -64,10 +64,17 @@ impl PluginSpec {
 
     /// Package spec OpenCode writes to its config.
     pub fn opencode_package(&self) -> String {
-        if self.git.starts_with("github:") {
-            format!("{}#{}", self.git, self.git_ref)
+        let git = &self.git;
+        let is_shorthand = !git.contains("://")
+            && !git.starts_with("git@")
+            && !self.is_local()
+            && !git.starts_with("github:");
+        if git.starts_with("github:") {
+            format!("{git}#{}", self.git_ref)
+        } else if is_shorthand {
+            format!("github:{git}#{}", self.git_ref)
         } else {
-            format!("git+{}#{}", self.git, self.git_ref)
+            format!("git+{git}#{}", self.git_ref)
         }
     }
 
@@ -179,6 +186,8 @@ mod tests {
         );
         let github = PluginSpec::new("p1", "github:owner/repo", "main");
         assert_eq!(github.opencode_package(), "github:owner/repo#main");
+        let shorthand = PluginSpec::new("p1", "owner/repo", "main");
+        assert_eq!(shorthand.opencode_package(), "github:owner/repo#main");
     }
 
     #[test]
