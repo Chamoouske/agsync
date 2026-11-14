@@ -130,3 +130,34 @@ fn busy_lock_makes_check_quiet_and_apply_wait() {
     assert!(text.contains("esperando ele terminar"), "{text}");
     assert!(env.data.join("state.json").exists());
 }
+
+#[test]
+fn moving_source_branch_is_news_at_the_same_commit() {
+    let env = setup();
+    let src = env.root.path().join("src-repo");
+    std::fs::create_dir_all(&src).unwrap();
+    git(&src, &["init", "-q", "-b", "main"]);
+    std::fs::write(src.join("server.js"), "one").unwrap();
+    git(&src, &["add", "-A"]);
+    git(&src, &["commit", "-q", "-m", "one"]);
+    let url = src.to_string_lossy().replace('\\', "/");
+    env.push(&format!(
+        "version: 1\nmcps:\n  built:\n    source: {{git: \"{url}\", ref: main}}\n    command: node\n    args: [\"{{dir}}/server.js\"]\n"
+    ));
+    env.ok(&["apply", "--yes"]);
+    env.ok(&["check"]);
+    assert!(env.pending().is_none(), "{:?}", env.pending());
+    assert!(env.notifications().is_empty());
+
+    std::fs::write(src.join("server.js"), "two").unwrap();
+    git(&src, &["commit", "-q", "-am", "two"]);
+    let sha = git(&src, &["rev-parse", "HEAD"]);
+    env.ok(&["check"]);
+    let pending = env.pending().expect("source moved");
+    assert_eq!(pending["agents"]["codex"]["changed"][0], "mcp built");
+    assert_eq!(pending["builds"][0]["sha"], sha.as_str());
+    assert_eq!(pending["sources"][0]["sha"], sha.as_str());
+    assert_eq!(env.notifications().len(), 1);
+    env.ok(&["check"]);
+    assert_eq!(env.notifications().len(), 1);
+}
