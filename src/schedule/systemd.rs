@@ -69,7 +69,7 @@ impl Systemd {
 
 impl Scheduler for Systemd {
     fn install(&self, exe: &Path, minutes: u32) -> anyhow::Result<Vec<String>> {
-        let path = std::env::var("PATH").unwrap_or_default();
+        let path = super::current_frozen_path();
         crate::atomic::write_atomic(&self.service(), service_text(exe, &path).as_bytes())?;
         crate::atomic::write_atomic(&self.timer(), timer_text(minutes).as_bytes())?;
         systemctl(&["daemon-reload"])?;

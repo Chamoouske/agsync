@@ -4,8 +4,10 @@
 //! crontab line. [`for_this_machine`] picks one; `install`, `remove` and `status` are
 //! the commands, reusable by `init` and `uninstall`.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use crate::host::Host;
 use crate::machine::Machine;
 use crate::paths::Dirs;
 
@@ -80,6 +82,28 @@ fn system() -> Box<dyn Scheduler> {
     Box::new(linux)
 }
 
+/// The `PATH` saved into a schedule, from `path`: only dirs that exist and belong to
+/// this OS (no Windows dirs seen from WSL), each once, in order. Builds run by the
+/// scheduled check then find the tools of this OS.
+pub fn frozen_path(path: &OsStr, host: &dyn Host) -> String {
+    let mut kept: Vec<PathBuf> = Vec::new();
+    for dir in std::env::split_paths(path) {
+        let wanted = dir.is_dir() && !host.foreign(&dir) && !kept.contains(&dir);
+        if wanted {
+            kept.push(dir);
+        }
+    }
+    std::env::join_paths(kept)
+        .map(|joined| joined.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// [`frozen_path`] of this process's `PATH` on this host.
+pub fn current_frozen_path() -> String {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    frozen_path(&path, crate::host::current())
+}
+
 /// `agsync schedule install`: every `check_interval_minutes` of `machine.toml` (default 15).
 pub fn install() -> anyhow::Result<()> {
     let exe = crate::paths::current_exe()?;
@@ -133,4 +157,38 @@ fn interval() -> anyhow::Result<u32> {
         anyhow::bail!("check_interval_minutes = 0 em {}", file.display());
     }
     Ok(minutes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::host::wsl::Wsl;
+
+    #[test]
+    fn frozen_path_keeps_existing_dirs_of_this_os_once() {
+        let tmp = crate::tmp::TempDir::new("agsync-test").unwrap();
+        let dir = |name: &str| {
+            let path = tmp.path().join(name);
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        };
+        let bin = dir("bin");
+        let tools = dir("Program Files (x86)");
+        let windows = dir("mnt").join("c");
+        std::fs::create_dir_all(windows.join("Windows")).unwrap();
+        let host = Wsl {
+            distro: None,
+            mount_root: tmp.path().join("mnt"),
+        };
+        let path = std::env::join_paths([
+            bin.clone(),
+            windows.join("Windows"),
+            tmp.path().join("missing"),
+            tools.clone(),
+            bin.clone(),
+        ])
+        .unwrap();
+        let expected = std::env::join_paths([bin, tools]).unwrap();
+        assert_eq!(frozen_path(&path, &host), expected.to_string_lossy());
+    }
 }

@@ -135,6 +135,16 @@ fn systemd_user_timer_is_installed_runs_and_is_removed() {
     assert!(started, "{out}");
     let ran = std::fs::read_to_string(env.root.path().join("ran")).unwrap();
     assert!(ran.starts_with("check\n"), "{ran}");
+    let unit_path = ran.lines().nth(1).unwrap();
+    let dirs: Vec<PathBuf> = std::env::split_paths(unit_path).collect();
+    let host = agsync::host::current();
+    for dir in &dirs {
+        assert!(
+            !host.foreign(dir),
+            "Windows dir in the unit PATH: {unit_path}"
+        );
+        assert_eq!(dirs.iter().filter(|d| *d == dir).count(), 1, "{unit_path}");
+    }
 
     assert_eq!(systemd.status(&exe).unwrap(), Status::Current);
     let other = systemd.status(Path::new("/old/agsync")).unwrap();

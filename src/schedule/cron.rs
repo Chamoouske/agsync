@@ -29,7 +29,7 @@ impl Cron {
 
 impl Scheduler for Cron {
     fn install(&self, exe: &Path, minutes: u32) -> anyhow::Result<Vec<String>> {
-        let path = std::env::var("PATH").unwrap_or_default();
+        let path = super::current_frozen_path();
         let line = cron_line(exe, minutes, &path, &self.marker);
         write_table(&with_line(&read_table(), &line, &self.marker))?;
         let note = super::systemd::frozen_path_note("na linha do crontab", Path::new("crontab -l"));
