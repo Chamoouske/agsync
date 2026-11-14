@@ -99,6 +99,14 @@ fn systemd_then_cron_then_nothing() {
         eprintln!("SKIP chain: precisa de systemctl e crontab no PATH");
         return;
     };
+    let manager = Command::new(&systemctl)
+        .args(["--user", "show-environment"])
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !manager {
+        eprintln!("SKIP chain: `systemctl --user` nao responde");
+        return;
+    }
     let env = Env::new();
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
