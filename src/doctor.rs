@@ -24,6 +24,10 @@ impl Checks {
         println!("info    {text}");
     }
 
+    fn warn(&self, text: &str) {
+        println!("AVISO   {text}");
+    }
+
     fn problem(&mut self, text: &str) {
         self.problems += 1;
         println!("PROBLEMA {text}");
@@ -36,6 +40,9 @@ pub fn doctor() -> anyhow::Result<bool> {
     check_git(&mut checks);
     let dirs = Dirs::from_env()?;
     check_agents(&mut checks);
+    if let Some(text) = legacy_hermes(cfg!(windows)) {
+        checks.warn(&text);
+    }
     check_secrets_file(&mut checks, &dirs);
     check_backups(&mut checks, &dirs);
     let machine = match Machine::load(&dirs.machine_file()) {
@@ -110,6 +117,26 @@ fn check_agents(checks: &mut Checks) {
     if found == 0 {
         checks.problem("nenhum agente detectado; apply nao teria onde escrever");
     }
+}
+
+/// Windows only: a `~/.hermes` left from WSL or an old install, while native Hermes
+/// reads `%LOCALAPPDATA%\hermes`. agsync never writes there unless `HERMES_HOME` says so.
+fn legacy_hermes(windows: bool) -> Option<String> {
+    if !windows || std::env::var_os("HERMES_HOME").is_some() {
+        return None;
+    }
+    let legacy = crate::paths::home().ok()?.join(".hermes");
+    if !legacy.is_dir() {
+        return None;
+    }
+    let native = crate::agent::hermes::home_dir().ok()?;
+    Some(format!(
+        "{} existe, mas o Hermes nativo do Windows usa {}; o agsync nao escreve em {}. \
+         Se essa e a pasta em uso, defina HERMES_HOME",
+        legacy.display(),
+        native.display(),
+        legacy.display()
+    ))
 }
 
 fn check_secrets_file(checks: &mut Checks, dirs: &Dirs) {
@@ -237,6 +264,36 @@ fn check_items(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_hermes_folder_is_only_flagged_on_windows() {
+        let tmp = crate::tmp::TempDir::new("agsync-test").unwrap();
+        std::fs::create_dir_all(tmp.path().join(".hermes")).unwrap();
+        let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        let old_home = std::env::var_os(var);
+        let old_hermes = std::env::var_os("HERMES_HOME");
+        unsafe {
+            std::env::set_var(var, tmp.path());
+            std::env::set_var("LOCALAPPDATA", tmp.path().join("local"));
+            std::env::remove_var("HERMES_HOME");
+        }
+        let text = legacy_hermes(true).unwrap();
+        assert!(text.contains(".hermes existe"), "{text}");
+        assert!(text.contains("HERMES_HOME"), "{text}");
+        assert!(legacy_hermes(false).is_none());
+        unsafe { std::env::set_var("HERMES_HOME", tmp.path()) };
+        assert!(legacy_hermes(true).is_none());
+        unsafe {
+            match old_home {
+                Some(v) => std::env::set_var(var, v),
+                None => std::env::remove_var(var),
+            }
+            match old_hermes {
+                Some(v) => std::env::set_var("HERMES_HOME", v),
+                None => std::env::remove_var("HERMES_HOME"),
+            }
+        }
+    }
 
     #[test]
     fn hints_for_tls_and_auth() {
