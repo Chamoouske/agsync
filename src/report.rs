@@ -9,7 +9,7 @@ use crate::machine::Machine;
 use crate::manifest::{Manifest, selected, targets};
 use crate::paths::Dirs;
 use crate::plan::{Action, Change, plan};
-use crate::resolved::Resolved;
+use crate::resolved::{Resolved, Watched};
 use crate::secret::{self, Secrets};
 use crate::source::BuildJob;
 use crate::state::{State, keys};
@@ -55,26 +55,70 @@ pub struct Report {
     pub skipped: Vec<String>,
     /// Things apply does not change but the user should know.
     pub warnings: Vec<String>,
+    /// Git sources on a branch or tag, with the commit they resolved to.
+    pub watched: Vec<Watched>,
+}
+
+/// Local files every plan starts from.
+pub struct Inputs {
+    pub dirs: Dirs,
+    pub machine: Machine,
+    pub state: State,
+    pub secrets: Secrets,
+}
+
+impl Inputs {
+    pub fn load() -> anyhow::Result<Inputs> {
+        let dirs = Dirs::from_env()?;
+        let machine = Machine::load(&dirs.machine_file())?;
+        let state = State::load(&dirs.state_file())?;
+        let secrets = Secrets::load(&secret::file_path(&dirs.config))?;
+        Ok(Inputs {
+            dirs,
+            machine,
+            state,
+            secrets,
+        })
+    }
+}
+
+/// Reads and validates `agsync.yaml` from the snapshot, local skill folders included.
+pub fn read_manifest(snapshot: &Snapshot) -> anyhow::Result<Manifest> {
+    let text = std::fs::read_to_string(snapshot.path().join("agsync.yaml"))
+        .map_err(|e| anyhow::anyhow!("agsync.yaml nao encontrado no repo: {e}"))?;
+    let manifest = Manifest::parse(&text)?;
+    manifest.check_skill_dirs(snapshot.path())?;
+    Ok(manifest)
 }
 
 impl Report {
     /// Resolves the remote commit, snapshots it and plans each agent.
     pub fn build(adopt: bool) -> anyhow::Result<Report> {
-        let dirs = Dirs::from_env()?;
-        let machine = Machine::load(&dirs.machine_file())?;
-        let state = State::load(&dirs.state_file())?;
-        let secrets = Secrets::load(&secret::file_path(&dirs.config))?;
-        let remote = git::resolve(&machine.repo, &machine.git_ref)?;
-        let snapshot = Snapshot::fetch(&machine.repo, &machine.git_ref, &remote)?;
-        let text = std::fs::read_to_string(snapshot.path().join("agsync.yaml"))
-            .map_err(|e| anyhow::anyhow!("agsync.yaml nao encontrado no repo: {e}"))?;
-        let manifest = Manifest::parse(&text)?;
-        manifest.check_skill_dirs(snapshot.path())?;
+        let inputs = Inputs::load()?;
+        let remote = git::resolve(&inputs.machine.repo, &inputs.machine.git_ref)?;
+        let snapshot = Snapshot::fetch(&inputs.machine.repo, &inputs.machine.git_ref, &remote)?;
+        let manifest = read_manifest(&snapshot)?;
+        Report::plan(inputs, remote, snapshot, &manifest, adopt)
+    }
 
-        let sources = Resolved::new(&manifest, &machine.profiles, &dirs);
+    /// Plans each agent for a snapshot whose manifest is already read.
+    pub fn plan(
+        inputs: Inputs,
+        remote: String,
+        snapshot: Snapshot,
+        manifest: &Manifest,
+        adopt: bool,
+    ) -> anyhow::Result<Report> {
+        let Inputs {
+            dirs,
+            machine,
+            state,
+            secrets,
+        } = inputs;
+        let sources = Resolved::new(manifest, &machine.profiles, &dirs);
         let mut skipped = sources.skipped.clone();
         let ctx = Context {
-            manifest: &manifest,
+            manifest,
             root: snapshot.path(),
             active: &machine.profiles,
             secrets: &secrets,
@@ -116,7 +160,8 @@ impl Report {
         }
         let builds = needed_builds(&sources, &agents);
         let reach: Vec<SkillReach> = agents.iter().map(SkillReach::of).collect();
-        let warnings = seen_anyway(&manifest, &machine.profiles, &reach);
+        let warnings = seen_anyway(manifest, &machine.profiles, &reach);
+        let watched = sources.watched.clone();
         Ok(Report {
             dirs,
             machine,
@@ -127,6 +172,7 @@ impl Report {
             builds,
             skipped,
             warnings,
+            watched,
         })
     }
 

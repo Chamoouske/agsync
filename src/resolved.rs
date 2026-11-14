@@ -3,6 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::git;
 use crate::manifest::{Manifest, selected};
 use crate::paths::Dirs;
@@ -23,6 +25,26 @@ pub struct SkillSource {
     pub dir: PathBuf,
 }
 
+/// A git source followed by branch or tag, and the commit it pointed to.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Watched {
+    pub url: String,
+    #[serde(rename = "ref")]
+    pub git_ref: String,
+    pub sha: String,
+}
+
+impl Watched {
+    fn new(url: &str, git_ref: &str, sha: &str) -> Option<Watched> {
+        let moves = !git::is_full_sha(git_ref);
+        moves.then(|| Watched {
+            url: url.to_string(),
+            git_ref: git_ref.to_string(),
+            sha: sha.to_string(),
+        })
+    }
+}
+
 /// Sources by item name, plus the items held back and why.
 #[derive(Debug, Default)]
 pub struct Resolved {
@@ -31,6 +53,8 @@ pub struct Resolved {
     pub held_mcps: BTreeSet<String>,
     pub held_skills: BTreeSet<String>,
     pub skipped: Vec<String>,
+    /// Sources that can move without a new config commit, sorted and without repeats.
+    pub watched: Vec<Watched>,
 }
 
 impl Resolved {
@@ -57,6 +81,7 @@ impl Resolved {
                 &sources,
             ) {
                 Ok(found) => {
+                    resolved.watch(&src.git, &git_ref, &found.sha);
                     resolved.mcps.insert(name.clone(), found);
                 }
                 Err(reason) => {
@@ -77,6 +102,7 @@ impl Resolved {
             let name = skill.name();
             match skill_source(&name, url, git_ref, path, &sources) {
                 Ok(found) => {
+                    resolved.watch(url, git_ref, &found.sha);
                     resolved.skills.insert(name, found);
                 }
                 Err(reason) => {
@@ -85,7 +111,13 @@ impl Resolved {
                 }
             }
         }
+        resolved.watched.sort();
+        resolved.watched.dedup();
         resolved
+    }
+
+    fn watch(&mut self, url: &str, git_ref: &str, sha: &str) {
+        self.watched.extend(Watched::new(url, git_ref, sha));
     }
 }
 
