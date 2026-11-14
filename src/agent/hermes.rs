@@ -30,7 +30,7 @@ pub struct Hermes {
 impl Hermes {
     /// Finds `hermes` in PATH and resolves `HERMES_HOME`.
     pub fn detect() -> Result<Hermes, String> {
-        let exe = crate::which::find("hermes").ok_or("hermes nao encontrado no PATH")?;
+        let exe = crate::which::require("hermes")?;
         let home = home_dir().map_err(|e| e.to_string())?;
         Ok(Hermes::at(exe, home))
     }

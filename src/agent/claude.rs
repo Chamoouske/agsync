@@ -25,7 +25,7 @@ pub struct Claude {
 impl Claude {
     /// Finds `claude` in PATH and resolves config locations.
     pub fn detect() -> Result<Claude, String> {
-        let exe = crate::which::find("claude").ok_or("claude nao encontrado no PATH")?;
+        let exe = crate::which::require("claude")?;
         if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
             return Ok(Claude::at(exe, &PathBuf::from(dir)));
         }

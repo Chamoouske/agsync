@@ -40,6 +40,117 @@ fn codex_env() -> (Env, PathBuf) {
     (env, bin)
 }
 
+/// A fresh folder in the Windows temp dir, seen from WSL; deleted on drop.
+struct WindowsDir(PathBuf);
+
+impl WindowsDir {
+    fn new() -> Option<WindowsDir> {
+        let host = agsync::host::wsl::Wsl::detect()?;
+        let cmd = host.mount_root.join("c/Windows/System32/cmd.exe");
+        let out = Command::new(cmd)
+            .args(["/d", "/c", "echo %TEMP%"])
+            .current_dir(&host.mount_root)
+            .output()
+            .ok()?;
+        let windows = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let out = Command::new("wslpath")
+            .args(["-u", &windows])
+            .output()
+            .ok()?;
+        let temp = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = temp.join(format!("agsync-wsl-test-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok()?;
+        Some(WindowsDir(dir))
+    }
+}
+
+impl Drop for WindowsDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn programs_on_windows_drives_are_ignored() {
+    if !in_wsl("programs_on_windows_drives_are_ignored") {
+        return;
+    }
+    let Some(windows) = WindowsDir::new() else {
+        eprintln!("SKIP programs_on_windows_drives_are_ignored: sem pasta temporaria do Windows");
+        return;
+    };
+    let win_bin = windows.0.join("bin");
+    let ran = windows.0.join("ran");
+    for name in ["claude", "opencode", "winonly-tool"] {
+        script(
+            &win_bin.join(name),
+            &format!("echo {name} >> '{}'", ran.display()),
+        );
+    }
+    script(&win_bin.join("git"), "echo fake windows git; exit 1");
+    script(&win_bin.join("hermes.exe"), "exit 1");
+
+    let mut env = Env::new();
+    let bin = fake_bin(&env, &["codex"]);
+    let mut dirs = vec![win_bin.clone(), bin];
+    for tool in ["git", "sh"] {
+        dirs.push(
+            agsync::which::find(tool)
+                .unwrap()
+                .parent()
+                .unwrap()
+                .to_path_buf(),
+        );
+    }
+    env.path = Some(std::env::join_paths(dirs).unwrap());
+    let log = env.root.path().join("fake.log");
+    env.vars = vec![(
+        "FAKE_AGENT_LOG".to_string(),
+        log.to_string_lossy().to_string(),
+    )];
+    git(&env.remote, &["init", "-q", "-b", "main"]);
+    let remote = env.remote.to_string_lossy().to_string();
+    env.push(&format!(
+        "version: 1\nmcps:\n  echo:\n    command: node\n  needs:\n    command: node\n    source: {{git: \"{remote}\", ref: main, requires: [winonly-tool]}}\n"
+    ));
+    env.ok(&["init", &remote, "--profile", "work"]);
+
+    let status = env.ok(&["status"]);
+    for name in ["claude", "opencode"] {
+        let line = format!(
+            "{name}: {name} achado so no Windows (interop), ignorado: {}",
+            win_bin.join(name).display()
+        );
+        assert!(status.contains(&line), "{status}");
+    }
+    let hermes = format!(
+        "hermes: hermes achado so no Windows (interop), ignorado: {}",
+        win_bin.join("hermes.exe").display()
+    );
+    assert!(status.contains(&hermes), "{status}");
+    assert!(
+        status.contains(
+            "requires ausente no PATH: winonly-tool (achado so no Windows, interop, ignorado)"
+        ),
+        "{status}"
+    );
+    assert!(status.contains("codex:\n  mcp echo: adicionar"), "{status}");
+
+    let doctor = env.agsync(&["doctor"]).1;
+    assert!(doctor.starts_with("ok      git version"), "{doctor}");
+    assert!(!doctor.contains("fake windows git"), "{doctor}");
+    env.ok(&["apply", "--yes"]);
+    assert!(
+        !ran.exists(),
+        "a Windows program ran: {:?}",
+        std::fs::read_to_string(&ran)
+    );
+}
+
 #[test]
 fn check_in_wsl_never_calls_notify_send() {
     if !in_wsl("check_in_wsl_never_calls_notify_send") {

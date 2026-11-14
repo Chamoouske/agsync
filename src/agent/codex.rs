@@ -31,7 +31,7 @@ pub struct Codex {
 impl Codex {
     /// Finds `codex` in PATH and resolves `CODEX_HOME` and the skills root.
     pub fn detect() -> Result<Codex, String> {
-        let exe = crate::which::find("codex").ok_or("codex nao encontrado no PATH")?;
+        let exe = crate::which::require("codex")?;
         let user_home = crate::paths::home().map_err(|e| e.to_string())?;
         let home = match std::env::var_os("CODEX_HOME") {
             Some(dir) => PathBuf::from(dir),

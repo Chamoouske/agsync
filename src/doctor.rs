@@ -92,8 +92,8 @@ pub fn hint(error: &str) -> Option<&'static str> {
 }
 
 fn check_git(checks: &mut Checks) {
-    if crate::which::find("git").is_none() {
-        checks.problem("git nao encontrado no PATH");
+    if let Err(reason) = crate::which::require("git") {
+        checks.problem(&reason);
         return;
     }
     match git::git(&["--version"], None) {

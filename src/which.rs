@@ -1,14 +1,51 @@
-//! Executable lookup in `PATH`, honoring `PATHEXT` on Windows.
+//! Executable lookup in `PATH`, honoring `PATHEXT` on Windows. Executables of another
+//! OS reachable from here (Windows programs seen from WSL) are skipped.
 
 use std::path::{Path, PathBuf};
 
-/// First executable named `name` in `PATH`.
+/// First executable named `name` in `PATH` that belongs to this OS.
 pub fn find(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    let exts = extensions(name);
-    std::env::split_paths(&path)
-        .flat_map(|dir| exts.iter().map(move |ext| dir.join(format!("{name}{ext}"))))
-        .find(|candidate| is_executable(candidate))
+    let host = crate::host::current();
+    candidates(&extensions(name), name)
+        .into_iter()
+        .find(|exe| !host.foreign(exe))
+}
+
+/// First executable named `name` (or `name.exe`) that [`find`] skipped as foreign.
+pub fn foreign(name: &str) -> Option<PathBuf> {
+    let host = crate::host::current();
+    let mut found = candidates(&extensions(name), name);
+    found.extend(candidates(&[String::new()], &format!("{name}.exe")));
+    found.into_iter().find(|exe| host.foreign(exe))
+}
+
+/// [`find`], or why `name` is not used.
+pub fn require(name: &str) -> Result<PathBuf, String> {
+    if let Some(exe) = find(name) {
+        return Ok(exe);
+    }
+    match foreign(name) {
+        Some(exe) => Err(format!(
+            "{name} achado so no Windows (interop), ignorado: {}",
+            exe.display()
+        )),
+        None => Err(format!("{name} nao encontrado no PATH")),
+    }
+}
+
+/// Executables `<dir>/<name><ext>` for every `PATH` dir and ext, in lookup order.
+fn candidates(exts: &[String], name: &str) -> Vec<PathBuf> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let mut found = Vec::new();
+    for dir in std::env::split_paths(&path) {
+        for ext in exts {
+            let candidate = dir.join(format!("{name}{ext}"));
+            if is_executable(&candidate) {
+                found.push(candidate);
+            }
+        }
+    }
+    found
 }
 
 /// Suffixes to try: `PATHEXT` entries on Windows (plus the bare name if it already has

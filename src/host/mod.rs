@@ -1,6 +1,7 @@
 //! Where agsync runs: a plain OS, or Linux inside WSL, which sees the Windows drives and
 //! executables but has a home and agents of its own. One small interface, picked once.
 
+use std::path::Path;
 use std::sync::OnceLock;
 
 use crate::notify::Notifier;
@@ -11,6 +12,11 @@ pub mod wsl;
 
 /// What changes with the place agsync runs in.
 pub trait Host: Send + Sync {
+    /// True when `exe` belongs to another OS reachable from here, so agsync must not
+    /// run it nor write that OS's configs through it.
+    fn foreign(&self, _exe: &Path) -> bool {
+        false
+    }
     /// How `agsync check` tells the user about news.
     fn notifier(&self) -> Box<dyn Notifier>;
 }

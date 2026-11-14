@@ -44,12 +44,16 @@ pub fn ensure_checkout(url: &str, git_ref: &str, sha: &str, dir: &Path) -> anyho
     std::fs::rename(&tmp, dir).with_context(|| format!("renomear para {}", dir.display()))
 }
 
-/// Names in `requires` not found in `PATH`.
+/// Names in `requires` not found in `PATH`; one found only in Windows (WSL interop)
+/// says so.
 pub fn missing_requires(requires: &[String]) -> Vec<String> {
     requires
         .iter()
         .filter(|name| crate::which::find(name).is_none())
-        .cloned()
+        .map(|name| match crate::which::foreign(name) {
+            Some(_) => format!("{name} (achado so no Windows, interop, ignorado)"),
+            None => name.clone(),
+        })
         .collect()
 }
 

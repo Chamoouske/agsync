@@ -38,7 +38,7 @@ pub struct OpenCode {
 impl OpenCode {
     /// Finds `opencode` in PATH and resolves the global config dir.
     pub fn detect() -> Result<OpenCode, String> {
-        let exe = crate::which::find("opencode").ok_or("opencode nao encontrado no PATH")?;
+        let exe = crate::which::require("opencode")?;
         let dir = config_dir().map_err(|e| e.to_string())?;
         Ok(OpenCode::at(exe, dir))
     }

@@ -138,8 +138,11 @@ impl Snapshot {
 ///
 /// Git never prompts for credentials here (`GIT_TERMINAL_PROMPT=0`, and no Git
 /// Credential Manager dialog): a missing credential fails fast instead of hanging.
+/// The binary is the one [`crate::which::find`] picks, never a Windows `git` seen
+/// from WSL.
 pub fn git(args: &[&str], cwd: Option<&Path>) -> anyhow::Result<String> {
-    let mut cmd = Command::new("git");
+    let exe = crate::which::require("git").map_err(anyhow::Error::msg)?;
+    let mut cmd = Command::new(exe);
     cmd.args(args)
         .stdin(Stdio::null())
         .env("GIT_TERMINAL_PROMPT", "0")
