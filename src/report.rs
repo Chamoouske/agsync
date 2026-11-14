@@ -70,6 +70,8 @@ pub struct Report {
     pub warnings: Vec<String>,
     /// Git sources on a branch or tag, with the commit they resolved to.
     pub watched: Vec<Watched>,
+    /// `silentUpdate` from agsync.yaml.
+    pub silent_update: bool,
 }
 
 /// Local files every plan starts from.
@@ -199,6 +201,7 @@ impl Report {
             skipped,
             warnings,
             watched,
+            silent_update: manifest.silent_update,
         })
     }
 

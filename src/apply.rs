@@ -1,6 +1,7 @@
 //! `agsync apply`: write planned changes, one item at a time.
 
 use std::collections::BTreeSet;
+use std::io::IsTerminal;
 
 use crate::agent::link;
 use crate::cleanup;
@@ -20,6 +21,30 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     let _lock = Lock::wait(&Dirs::from_env()?)?;
     let report = Report::build(adopt)?;
     write(report, yes, "agsync apply", settle_check).map(|_| ())
+}
+
+/// `agsync init`'s last step: [`apply`] that does not ask when `silent` is set or
+/// agsync.yaml has `silentUpdate: true`. Returns false when it would have to ask
+/// without a terminal; nothing is written then.
+pub fn init_apply(yes: bool, silent: bool) -> anyhow::Result<bool> {
+    let _lock = Lock::wait(&Dirs::from_env()?)?;
+    let no_tty = !std::io::stdin().is_terminal();
+    let skip_without_asking = !yes && !silent && no_tty;
+    let report = match Report::build(false) {
+        Err(_) if skip_without_asking => return Ok(false),
+        built => built?,
+    };
+    let by_config = !yes && !silent && report.silent_update;
+    if by_config {
+        println!("silentUpdate no agsync.yaml: aplicando sem perguntar");
+    }
+    let yes = yes || silent || report.silent_update;
+    if !yes && no_tty {
+        report.snapshot.close()?;
+        return Ok(false);
+    }
+    write(report, yes, "agsync apply", settle_check)?;
+    Ok(true)
 }
 
 /// Shows the diff, asks for confirmation, applies, updates state, deletes the snapshot.
