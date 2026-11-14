@@ -59,6 +59,12 @@ enum Cmd {
         #[command(subcommand)]
         command: ScheduleCmd,
     },
+    /// Back up and remove what APM, 1MCP and the agent-config scripts left here.
+    MigrateLegacy {
+        /// Remove without asking; required when stdin is not a terminal.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Remove every agsync entry from the agents, the schedule, the shell hook and the state.
     Uninstall {
         /// Uninstall without asking; required when stdin is not a terminal.
@@ -144,6 +150,7 @@ fn main() {
             ScheduleCmd::Remove => agsync::schedule::remove().map(|()| true),
             ScheduleCmd::Status => agsync::schedule::status(),
         },
+        Cmd::MigrateLegacy { yes } => agsync::legacy::migrate_legacy(yes),
         Cmd::Uninstall { yes, purge } => agsync::uninstall::uninstall(yes, purge),
         Cmd::Secret {
             command: SecretCmd::Set { name },

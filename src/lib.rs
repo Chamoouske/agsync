@@ -17,6 +17,7 @@ pub mod hash;
 pub mod hook;
 pub mod host;
 pub mod init;
+pub mod legacy;
 pub mod lock;
 pub mod machine;
 pub mod manifest;
