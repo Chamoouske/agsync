@@ -34,7 +34,12 @@ pub struct Env {
 
 impl Env {
     pub fn new() -> Env {
-        let root = TempDir::new("agsync-e2e").unwrap();
+        Env::named("agsync-e2e")
+    }
+
+    /// Every dir under a temp root whose name starts with `prefix`.
+    pub fn named(prefix: &str) -> Env {
+        let root = TempDir::new(prefix).unwrap();
         let dir = |name: &str| {
             let path = root.path().join(name);
             std::fs::create_dir_all(&path).unwrap();
