@@ -7,6 +7,8 @@ mod common;
 use common::{Env, claude_missing, count, git, path_with};
 
 const SECRET: &str = "s3cr3t-token-value";
+const ENV_SECRET: &str = "claude-env-secret-555";
+const FILE_SECRET: &str = "claude-file-secret-666";
 
 fn yaml(echo_arg: &str, extra_mcps: &str, skills: &str) -> String {
     let skills = if skills.is_empty() {
@@ -38,7 +40,12 @@ fn end_to_end_with_real_claude() {
     }
     let mut env = Env::new();
     env.path = Some(path_with(&["git", "claude", "sh"], &[]));
-    env.forbidden.push(SECRET.to_string());
+    env.forbidden = vec![
+        SECRET.to_string(),
+        ENV_SECRET.to_string(),
+        FILE_SECRET.to_string(),
+    ];
+    env.vars = vec![("E2E_CLAUDE_ENV".to_string(), ENV_SECRET.to_string())];
     git(&env.remote, &["init", "-q", "-b", "main"]);
     let skill_dir = env.remote.join("skills").join("hello");
     std::fs::create_dir_all(&skill_dir).unwrap();
@@ -56,6 +63,11 @@ fn end_to_end_with_real_claude() {
     let url = env.remote.to_string_lossy().to_string();
     env.ok(&["init", &url, "--profile", "work"]);
     assert!(env.config.join("machine.toml").is_file());
+    let (ok, out) = env.agsync_with_input(
+        &["secret", "set", "E2E_CLAUDE_FILE"],
+        Some(&format!("{FILE_SECRET}\n")),
+    );
+    assert!(ok, "{out}");
 
     let status = env.ok(&["status"]);
     let head = git(&env.remote, &["rev-parse", "HEAD"]);
@@ -94,15 +106,20 @@ fn end_to_end_with_real_claude() {
     assert!(!state.contains("TOKEN"), "{state}");
     assert!(env.ok(&["status"]).contains("nada a mudar"));
 
-    let two =
-        "  two:\n    url: https://example.com/mcp\n    headers: {Authorization: \"Bearer x\"}\n";
+    let two = "  two:\n    url: https://example.com/mcp\n    headers: {Authorization: \"Bearer ${E2E_CLAUDE_ENV}\", X-Key: \"${E2E_CLAUDE_FILE}\", X-Team: t1}\n";
     env.push(&yaml("v2.js", two, HELLO));
     let status = env.ok(&["status"]);
     assert!(status.contains("mcp echo: atualizar"), "{status}");
     assert!(status.contains("mcp two: adicionar"), "{status}");
     env.ok(&["apply", "--yes"]);
     assert_eq!(env.args_of("echo"), serde_json::json!(["v2.js"]));
-    assert_eq!(env.servers()["two"]["type"], "http");
+    let remote = &env.servers()["two"];
+    assert_eq!(remote["type"], "http");
+    assert_eq!(remote["url"], "https://example.com/mcp");
+    let headers = &remote["headers"];
+    assert_eq!(headers["Authorization"], "Bearer ${E2E_CLAUDE_ENV}");
+    assert_eq!(headers["X-Key"], FILE_SECRET);
+    assert_eq!(headers["X-Team"], "t1");
 
     env.push(&yaml("v2.js", "", ""));
     let diff = env.ok(&["diff"]);

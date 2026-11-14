@@ -100,7 +100,7 @@ impl Adapter for Hermes {
         if self.written_hash(name)?.is_some() {
             self.run(&["config", "unset", &key], true)?;
         }
-        let entry = native(spec)?.to_string();
+        let entry = native(spec).to_string();
         self.run(&["config", "set", &key, &entry], false)?;
         if self.written_hash(name)?.as_deref() != Some(spec.hash().as_str()) {
             anyhow::bail!("hermes nao gravou o mcp '{name}' como esperado");
@@ -142,18 +142,26 @@ pub fn home_dir() -> anyhow::Result<PathBuf> {
 }
 
 /// The entry Hermes stores, as JSON for `hermes config set`.
-fn native(spec: &McpSpec) -> anyhow::Result<Value> {
-    let McpSpec::Stdio { command, args, env } = spec else {
-        anyhow::bail!("mcp remoto ainda nao suportado no hermes");
-    };
-    let mut entry = json!({ "command": command });
-    if !args.is_empty() {
-        entry["args"] = json!(args);
+fn native(spec: &McpSpec) -> Value {
+    let mut entry = serde_json::Map::new();
+    match spec {
+        McpSpec::Stdio { command, args, env } => {
+            entry.insert("command".into(), json!(command));
+            if !args.is_empty() {
+                entry.insert("args".into(), json!(args));
+            }
+            if !env.is_empty() {
+                entry.insert("env".into(), json!(env));
+            }
+        }
+        McpSpec::Http { url, headers } => {
+            entry.insert("url".into(), json!(url));
+            if !headers.is_empty() {
+                entry.insert("headers".into(), json!(headers));
+            }
+        }
     }
-    if !env.is_empty() {
-        entry["env"] = json!(env);
-    }
-    Ok(entry)
+    Value::Object(entry)
 }
 
 fn entry_hash(value: &Value) -> String {
@@ -163,8 +171,17 @@ fn entry_hash(value: &Value) -> String {
     }
 }
 
-/// The neutral form of a Hermes entry; other keys such as `enabled` are ignored.
+/// The neutral form of a Hermes entry. Keys such as `enabled` are ignored; an entry
+/// with `transport` (legacy SSE) is not one agsync writes.
 fn to_spec(value: &Value) -> Option<McpSpec> {
+    if value.get("transport").is_some() {
+        return None;
+    }
+    if let Some(url) = value.get("url") {
+        let url = url.as_str()?.to_string();
+        let headers = string_map(value.get("headers"))?;
+        return Some(McpSpec::Http { url, headers });
+    }
     let command = value.get("command")?.as_str()?.to_string();
     let args = match value.get("args") {
         Some(args) => args
@@ -174,16 +191,20 @@ fn to_spec(value: &Value) -> Option<McpSpec> {
             .collect::<Option<Vec<_>>>()?,
         None => Vec::new(),
     };
-    let mut env = BTreeMap::new();
-    for (key, value) in value
-        .get("env")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flatten()
-    {
-        env.insert(key.clone(), value.as_str()?.to_string());
-    }
+    let env = string_map(value.get("env"))?;
     Some(McpSpec::Stdio { command, args, env })
+}
+
+/// String map of an optional mapping; `None` if any value is not a string.
+fn string_map(value: Option<&Value>) -> Option<BTreeMap<String, String>> {
+    let Some(value) = value else {
+        return Some(BTreeMap::new());
+    };
+    value
+        .as_object()?
+        .iter()
+        .map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string())))
+        .collect()
 }
 
 #[cfg(test)]
@@ -205,11 +226,27 @@ mod tests {
             env: BTreeMap::from([("TOKEN".to_string(), "${TOKEN}".to_string())]),
         };
         assert_eq!(hermes.mcps().unwrap()["manual"], spec.hash());
-        let entry = native(&spec).unwrap();
+        let entry = native(&spec);
         assert_eq!(
             entry.to_string(),
             r#"{"args":["a"],"command":"tool","env":{"TOKEN":"${TOKEN}"}}"#
         );
         assert_eq!(to_spec(&entry), Some(spec));
+    }
+
+    #[test]
+    fn remote_entries_round_trip() {
+        let spec = McpSpec::Http {
+            url: "https://x/mcp".into(),
+            headers: BTreeMap::from([("Authorization".to_string(), "Bearer ${T}".to_string())]),
+        };
+        let entry = native(&spec);
+        assert_eq!(
+            entry.to_string(),
+            r#"{"headers":{"Authorization":"Bearer ${T}"},"url":"https://x/mcp"}"#
+        );
+        assert_eq!(to_spec(&entry), Some(spec));
+        let sse = json!({"url": "https://x/sse", "transport": "sse"});
+        assert_eq!(to_spec(&sse), None);
     }
 }

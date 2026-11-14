@@ -4,8 +4,8 @@
 //! `[mcp_servers.<name>]`. Every `codex` call gets `CODEX_HOME` explicitly.
 //!
 //! `codex mcp add/remove` is used whenever it can express the entry. It has no flag for
-//! `env_vars`, so an entry that passes a variable through from the environment is
-//! written by editing the TOML in place (`toml_edit`, comments and layout kept).
+//! `env_vars`, `http_headers` or `env_http_headers`, so an entry that needs one of them
+//! is written by editing the TOML in place (`toml_edit`, comments and layout kept).
 //! Skills are folders under `~/.agents/skills`, the user skills root Codex reads.
 
 use std::collections::BTreeMap;
@@ -128,14 +128,14 @@ impl Adapter for Codex {
     }
 
     fn write_mcp(&self, name: &str, spec: &McpSpec) -> anyhow::Result<()> {
-        match cli_args(name, spec)? {
+        match cli_args(name, spec) {
             Some(args) => {
                 if self.written_hash(name)?.is_some() {
                     self.run(&["mcp".into(), "remove".into(), name.into()], true)?;
                 }
                 self.run(&args, false)?;
             }
-            None => self.set_entry(name, native(spec)?)?,
+            None => self.set_entry(name, native(spec))?,
         }
         if self.written_hash(name)?.as_deref() != Some(spec.hash().as_str()) {
             anyhow::bail!("codex nao gravou o mcp '{name}' como esperado");
@@ -171,48 +171,104 @@ fn passed_through(env: &BTreeMap<String, String>) -> Vec<&str> {
         .collect()
 }
 
+/// Where Codex keeps each header of a remote entry.
+#[derive(Default)]
+struct Headers<'a> {
+    /// `bearer_token_env_var`, from `Authorization: Bearer ${VAR}`.
+    bearer: Option<&'a str>,
+    /// `env_http_headers`: header to variable, from values that are exactly `${VAR}`.
+    from_env: Vec<(&'a str, &'a str)>,
+    /// `http_headers`: fixed values.
+    fixed: Vec<(&'a str, &'a str)>,
+}
+
+fn split_headers(headers: &BTreeMap<String, String>) -> Headers<'_> {
+    let mut out = Headers::default();
+    for (key, value) in headers {
+        let bearer = value.strip_prefix("Bearer ").and_then(whole_ref);
+        match (whole_ref(value), bearer) {
+            (Some(var), _) => out.from_env.push((key, var)),
+            (None, Some(var)) if key == "Authorization" => out.bearer = Some(var),
+            _ => out.fixed.push((key, value)),
+        }
+    }
+    out
+}
+
 /// `codex mcp add` arguments, or `None` when the CLI has no flag for some field.
-fn cli_args(name: &str, spec: &McpSpec) -> anyhow::Result<Option<Vec<String>>> {
-    let McpSpec::Stdio { command, args, env } = spec else {
-        anyhow::bail!("mcp remoto ainda nao suportado no codex");
-    };
-    if !passed_through(env).is_empty() {
-        return Ok(None);
-    }
+fn cli_args(name: &str, spec: &McpSpec) -> Option<Vec<String>> {
     let mut out: Vec<String> = vec!["mcp".into(), "add".into(), name.into()];
-    for (key, value) in env {
-        out.push("--env".into());
-        out.push(format!("{key}={value}"));
+    match spec {
+        McpSpec::Stdio { command, args, env } => {
+            if !passed_through(env).is_empty() {
+                return None;
+            }
+            for (key, value) in env {
+                out.push("--env".into());
+                out.push(format!("{key}={value}"));
+            }
+            out.push("--".into());
+            out.push(command.clone());
+            out.extend(args.iter().cloned());
+        }
+        McpSpec::Http { url, headers } => {
+            let headers = split_headers(headers);
+            if !headers.from_env.is_empty() || !headers.fixed.is_empty() {
+                return None;
+            }
+            out.push("--url".into());
+            out.push(url.clone());
+            if let Some(var) = headers.bearer {
+                out.push("--bearer-token-env-var".into());
+                out.push(var.into());
+            }
+        }
     }
-    out.push("--".into());
-    out.push(command.clone());
-    out.extend(args.iter().cloned());
-    Ok(Some(out))
+    Some(out)
 }
 
 /// The Codex table for an entry.
-fn native(spec: &McpSpec) -> anyhow::Result<Table> {
-    let McpSpec::Stdio { command, args, env } = spec else {
-        anyhow::bail!("mcp remoto ainda nao suportado no codex");
-    };
+fn native(spec: &McpSpec) -> Table {
     let mut table = Table::new();
-    table.insert("command", toml_edit::value(command.as_str()));
-    if !args.is_empty() {
-        table.insert("args", toml_edit::value(Array::from_iter(args)));
+    match spec {
+        McpSpec::Stdio { command, args, env } => {
+            table.insert("command", toml_edit::value(command.as_str()));
+            if !args.is_empty() {
+                table.insert("args", toml_edit::value(Array::from_iter(args)));
+            }
+            let names = passed_through(env);
+            let fixed = env
+                .iter()
+                .filter(|(key, _)| !names.contains(&key.as_str()))
+                .map(|(key, value)| (key.as_str(), value.as_str()));
+            insert_map(&mut table, "env", fixed.collect());
+            if !names.is_empty() {
+                table.insert("env_vars", toml_edit::value(Array::from_iter(names)));
+            }
+        }
+        McpSpec::Http { url, headers } => {
+            table.insert("url", toml_edit::value(url.as_str()));
+            let headers = split_headers(headers);
+            if let Some(var) = headers.bearer {
+                table.insert("bearer_token_env_var", toml_edit::value(var));
+            }
+            insert_map(&mut table, "http_headers", headers.fixed);
+            insert_map(&mut table, "env_http_headers", headers.from_env);
+        }
     }
-    let names = passed_through(env);
-    let fixed: InlineTable = env
-        .iter()
-        .filter(|(key, _)| !names.contains(&key.as_str()))
-        .map(|(key, value)| (key.as_str(), toml_edit::Value::from(value.as_str())))
+    table
+}
+
+/// Inserts `key = { .. }` unless `pairs` is empty.
+fn insert_map(table: &mut Table, key: &str, pairs: Vec<(&str, &str)>) {
+    if pairs.is_empty() {
+        return;
+    }
+    let map: InlineTable = pairs
+        .into_iter()
+        .map(|(k, v)| (k, toml_edit::Value::from(v)))
         .collect();
-    if !fixed.is_empty() {
-        table.insert("env", toml_edit::value(fixed));
-    }
-    if !names.is_empty() {
-        table.insert("env_vars", toml_edit::value(Array::from_iter(names)));
-    }
-    Ok(table)
+    table.insert(key, toml_edit::value(map));
 }
 
 fn entry_hash(value: &toml::Value) -> String {
@@ -222,29 +278,47 @@ fn entry_hash(value: &toml::Value) -> String {
     }
 }
 
-/// The neutral form of a Codex entry: `env_vars` names read back as `NAME: ${NAME}`.
+/// The neutral form of a Codex entry: `env_vars` names read back as `NAME: ${NAME}`,
+/// `bearer_token_env_var` as `Authorization: Bearer ${VAR}` and `env_http_headers` as
+/// `${VAR}` header values.
 fn to_spec(value: &toml::Value) -> Option<McpSpec> {
     let table = value.as_table()?;
+    if let Some(url) = table.get("url") {
+        let mut headers = string_map(table.get("http_headers"))?;
+        for (key, var) in string_map(table.get("env_http_headers"))? {
+            headers.insert(key, format!("${{{var}}}"));
+        }
+        if let Some(var) = table.get("bearer_token_env_var") {
+            let bearer = format!("Bearer ${{{}}}", var.as_str()?);
+            headers.insert("Authorization".to_string(), bearer);
+        }
+        let url = url.as_str()?.to_string();
+        return Some(McpSpec::Http { url, headers });
+    }
     let command = table.get("command")?.as_str()?.to_string();
     let args = match table.get("args") {
         Some(args) => strings(args)?,
         None => Vec::new(),
     };
-    let mut env = BTreeMap::new();
-    for (key, value) in table
-        .get("env")
-        .and_then(|e| e.as_table())
-        .into_iter()
-        .flatten()
-    {
-        env.insert(key.clone(), value.as_str()?.to_string());
-    }
+    let mut env = string_map(table.get("env"))?;
     if let Some(names) = table.get("env_vars") {
         for name in strings(names)? {
             env.insert(name.clone(), format!("${{{name}}}"));
         }
     }
     Some(McpSpec::Stdio { command, args, env })
+}
+
+/// String map of an optional TOML table; `None` if any value is not a string.
+fn string_map(value: Option<&toml::Value>) -> Option<BTreeMap<String, String>> {
+    let Some(value) = value else {
+        return Some(BTreeMap::new());
+    };
+    value
+        .as_table()?
+        .iter()
+        .map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string())))
+        .collect()
 }
 
 fn strings(value: &toml::Value) -> Option<Vec<String>> {
@@ -308,7 +382,7 @@ env = { MODE = "x" }
     #[test]
     fn cli_only_when_no_env_var_is_passed_through() {
         let plain = stdio(&[("MODE", "x"), ("TOKEN", "Bearer value")]);
-        let args = cli_args("srv", &plain).unwrap().unwrap();
+        let args = cli_args("srv", &plain).unwrap();
         assert_eq!(
             args,
             [
@@ -325,7 +399,7 @@ env = { MODE = "x" }
             ]
         );
         let passed = stdio(&[("TOKEN", "${TOKEN}")]);
-        assert_eq!(cli_args("srv", &passed).unwrap(), None);
+        assert_eq!(cli_args("srv", &passed), None);
     }
 
     #[test]
@@ -338,7 +412,7 @@ env = { MODE = "x" }
             tmp.path().into(),
         );
         let spec = stdio(&[("MODE", "x"), ("TOKEN", "${TOKEN}")]);
-        codex.set_entry("srv", native(&spec).unwrap()).unwrap();
+        codex.set_entry("srv", native(&spec)).unwrap();
         let text = std::fs::read_to_string(tmp.path().join("config.toml")).unwrap();
         assert!(text.starts_with(CONFIG), "{text}");
         assert!(text.contains("env_vars = [\"TOKEN\"]"), "{text}");
@@ -350,8 +424,57 @@ env = { MODE = "x" }
             empty.path().into(),
             empty.path().into(),
         );
-        codex.set_entry("srv", native(&spec).unwrap()).unwrap();
+        codex.set_entry("srv", native(&spec)).unwrap();
         let text = std::fs::read_to_string(empty.path().join("config.toml")).unwrap();
         assert!(text.starts_with("[mcp_servers.srv]"), "{text}");
+    }
+
+    #[test]
+    fn remote_headers_map_to_codex_fields_and_back() {
+        let headers = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let url = "https://x/mcp".to_string();
+        let bearer = McpSpec::Http {
+            url: url.clone(),
+            headers: headers(&[("Authorization", "Bearer ${TOK}")]),
+        };
+        let args = cli_args("r", &bearer).unwrap();
+        assert_eq!(
+            args,
+            [
+                "mcp",
+                "add",
+                "r",
+                "--url",
+                "https://x/mcp",
+                "--bearer-token-env-var",
+                "TOK"
+            ]
+        );
+        let mixed = McpSpec::Http {
+            url,
+            headers: headers(&[
+                ("Authorization", "Bearer ${TOK}"),
+                ("X-Env", "${KEY}"),
+                ("X-Team", "t1"),
+            ]),
+        };
+        assert_eq!(cli_args("r", &mixed), None);
+        let text = native(&mixed).to_string();
+        assert!(text.contains("bearer_token_env_var = \"TOK\""), "{text}");
+        assert!(
+            text.contains("env_http_headers = { X-Env = \"KEY\" }"),
+            "{text}"
+        );
+        assert!(
+            text.contains("http_headers = { X-Team = \"t1\" }"),
+            "{text}"
+        );
+        let value: toml::Value = toml::from_str(&text).unwrap();
+        assert_eq!(to_spec(&value), Some(mixed));
     }
 }

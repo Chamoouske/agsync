@@ -67,6 +67,9 @@ mcps:
   fileval:
     command: node
     env: {{TOKEN: "Bearer ${{E2E_OC_FILE}}"}}
+  remote:
+    url: https://example.com/mcp
+    headers: {{Authorization: "Bearer ${{E2E_OC_ENV}}", X-Key: "${{E2E_OC_FILE}}"}}
 {extra}skills:
   - path: skills/hello
 "#
@@ -151,6 +154,11 @@ fn opencode_end_to_end() {
         s["fileval"]["environment"]["TOKEN"],
         format!("Bearer {FILE_SECRET}")
     );
+    assert_eq!(s["remote"]["type"], "remote");
+    assert_eq!(s["remote"]["url"], "https://example.com/mcp");
+    let headers = &s["remote"]["headers"];
+    assert_eq!(headers["Authorization"], "Bearer {env:E2E_OC_ENV}");
+    assert_eq!(headers["X-Key"], FILE_SECRET);
     assert_eq!(
         s["untouched"]["command"],
         serde_json::json!(["manual-tool", "keep"])

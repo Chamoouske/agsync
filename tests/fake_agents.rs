@@ -125,6 +125,12 @@ mcps:
   fileval:
     command: node
     env: {{TOKEN: "${{E2E_FAKE_FILE}}"}}
+  remote:
+    url: https://example.com/mcp
+    headers: {{Authorization: "Bearer {ENV_REF}"}}
+  remotefile:
+    url: https://example.com/mcp2
+    headers: {{X-Key: "${{E2E_FAKE_FILE}}", X-Env: "{ENV_REF}", X-Team: t1}}
 {extra}skills:
   - path: skills/hello
 "#
@@ -196,6 +202,35 @@ fn assert_first_apply(env: &Env) {
         s["untouched"]["args"],
         toml::Value::Array(vec!["keep".into()])
     );
+    let add_remote = strs(&[
+        "mcp",
+        "add",
+        "remote",
+        "--url",
+        "https://example.com/mcp",
+        "--bearer-token-env-var",
+        "E2E_FAKE_ENV",
+    ]);
+    assert!(calls(env, "codex").contains(&add_remote));
+    assert!(
+        !calls(env, "codex")
+            .iter()
+            .flatten()
+            .any(|w| w == "remotefile")
+    );
+    assert_eq!(
+        s["remote"]["bearer_token_env_var"].as_str(),
+        Some("E2E_FAKE_ENV")
+    );
+    let remotefile = &s["remotefile"];
+    assert_eq!(remotefile["url"].as_str(), Some("https://example.com/mcp2"));
+    assert_eq!(
+        remotefile["http_headers"]["X-Key"].as_str(),
+        Some(FILE_SECRET)
+    );
+    assert_eq!(remotefile["http_headers"]["X-Team"].as_str(), Some("t1"));
+    let from_env = remotefile["env_http_headers"]["X-Env"].as_str();
+    assert_eq!(from_env, Some("E2E_FAKE_ENV"));
     let text = codex_text(env);
     assert!(
         text.starts_with("# user comment that must survive"),
@@ -212,6 +247,12 @@ fn assert_first_apply(env: &Env) {
     assert_eq!(h["renamed"]["env"]["TOKEN"], ENV_REF);
     assert_eq!(h["fileval"]["env"]["TOKEN"], FILE_SECRET);
     assert_eq!(h["untouched"]["args"], json!(["keep"]));
+    let bearer = format!("Bearer {ENV_REF}");
+    assert_eq!(h["remote"]["url"], "https://example.com/mcp");
+    assert_eq!(h["remote"]["headers"]["Authorization"], bearer);
+    assert_eq!(h["remotefile"]["headers"]["X-Key"], FILE_SECRET);
+    assert_eq!(h["remotefile"]["headers"]["X-Env"], ENV_REF);
+    assert_eq!(h["remotefile"]["headers"]["X-Team"], "t1");
     let root = hermes_root(env);
     assert_eq!(root["model"], "hermes-model");
     assert_eq!(root["toolsets"], json!(["web", "terminal"]));

@@ -133,20 +133,13 @@ impl Adapter for OpenCode {
     }
 
     fn write_mcp(&self, name: &str, spec: &McpSpec) -> anyhow::Result<()> {
-        let McpSpec::Stdio { command, args, env } = spec else {
-            anyhow::bail!("mcp remoto ainda nao suportado no opencode");
-        };
         std::fs::create_dir_all(&self.dir)
             .with_context(|| format!("criar {}", self.dir.display()))?;
         let target = self.add_target();
         let mut cmd = Command::new(&self.exe);
         cmd.env("OPENCODE_CONFIG_DIR", &self.dir)
-            .args(["mcp", "add", "--global", name]);
-        for (key, value) in env {
-            cmd.arg("--env").arg(format!("{key}={}", to_native(value)));
-        }
-        cmd.arg("--").arg(to_native(command));
-        cmd.args(args.iter().map(|a| to_native(a)));
+            .args(["mcp", "add", "--global", name])
+            .args(add_args(spec));
         cli::run(cmd, "opencode mcp add", false)?;
         self.cut(name, Some(&target))?;
         if self.written_hash(name)?.as_deref() != Some(spec.hash().as_str()) {
@@ -245,8 +238,38 @@ fn to_spec(value: &Value) -> Option<McpSpec> {
                 env,
             })
         }
+        "remote" => {
+            let url = text(value.get("url")?)?;
+            let headers = strings(value.get("headers"))?;
+            Some(McpSpec::Http { url, headers })
+        }
         _ => None,
     }
+}
+
+/// `opencode mcp add` arguments after the name, with `${VAR}` as `{env:VAR}`.
+fn add_args(spec: &McpSpec) -> Vec<String> {
+    let mut out = Vec::new();
+    match spec {
+        McpSpec::Stdio { command, args, env } => {
+            for (key, value) in env {
+                out.push("--env".to_string());
+                out.push(format!("{key}={}", to_native(value)));
+            }
+            out.push("--".to_string());
+            out.push(to_native(command));
+            out.extend(args.iter().map(|a| to_native(a)));
+        }
+        McpSpec::Http { url, headers } => {
+            out.push("--url".to_string());
+            out.push(to_native(url));
+            for (key, value) in headers {
+                out.push("--header".to_string());
+                out.push(format!("{key}={}", to_native(value)));
+            }
+        }
+    }
+    out
 }
 
 /// String map of an optional JSON object; `None` if any value is not a string.
