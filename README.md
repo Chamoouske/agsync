@@ -108,7 +108,10 @@ skills:
   - path: skills/grug-brain-code
   - git: https://github.com/mattpocock/skills
     ref: 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d
-    path: skills/engineering/tdd
+    paths:
+      - skills/engineering/tdd
+      - skills/engineering/pr
+      - skills/productivity/writing-for-agents
   - git: https://github.com/<org>/more-skills
     ref: main
     path: review
@@ -146,6 +149,7 @@ Campos:
     - `{dir}` em `command`, `args` e `env` vira a pasta do checkout.
 - `skills[]`: cada item e uma pasta com `SKILL.md`.
   - `path`: pasta no repo de config ou, com `git` e `ref`, pasta dentro de outro repo.
+  - `paths`: com `git` e `ref`, lista de pastas do mesmo repo. Cada pasta vira uma skill independente, com o nome do ultimo segmento, e todas compartilham `git`, `ref`, `profiles` e `agents`. O ref e resolvido e o repo baixado uma vez so. Use `path` ou `paths`, nunca os dois; `name` nao vale com `paths`. Uma pasta sem `SKILL.md` no repo e pulada e reportada, sem bloquear as outras.
   - `name`: o padrao e o ultimo segmento do `path`.
   - `profiles` e `agents`: como nos MCPs.
 - `plugins[]`: um plugin publicado em um marketplace git.
