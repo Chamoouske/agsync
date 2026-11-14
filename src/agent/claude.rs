@@ -350,9 +350,7 @@ impl Adapter for Claude {
             &["plugin", "install", &id, "--scope", "user", "--json", "-y"],
             true,
         )?;
-        if let Err(e) = self.run(&["plugin", "update", &id, "--json", "-y"], true) {
-            eprintln!("aviso: claude plugin update {id}: {e:#}");
-        }
+        self.run(&["plugin", "update", &id, "--json", "-y"], true)?;
         Ok(id)
     }
 
