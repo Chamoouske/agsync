@@ -150,12 +150,6 @@ fn apply_agent(
         .chain(&plan.skills)
         .chain(&plan.plugins)
         .any(|c| c.action.writes());
-    let managed: BTreeSet<String> = state
-        .agent(plan.agent)
-        .plugins
-        .values()
-        .filter_map(|t| t.plugin.clone())
-        .collect();
     if writes && let Err(e) = plan.adapter.backup(&dirs.backups()) {
         eprintln!("{}: backup falhou, agente pulado: {e:#}", plan.agent);
         outcome.failures += 1;
@@ -185,6 +179,7 @@ fn apply_agent(
         save(state, dirs);
     }
     for change in &plan.plugins {
+        let managed = managed_plugins(plan, state);
         match apply_plugin(plan, change, state, &managed) {
             Ok(()) => outcome.wrote |= change.action.writes(),
             Err(e) => {
@@ -256,6 +251,17 @@ fn apply_skill(
         _ => {}
     }
     Ok(())
+}
+
+/// Plugin ids agsync tracks for this agent right now, including ones added earlier in
+/// the same apply.
+fn managed_plugins(plan: &AgentPlan, state: &State) -> BTreeSet<String> {
+    state
+        .agent(plan.agent)
+        .plugins
+        .values()
+        .filter_map(|t| t.plugin.clone())
+        .collect()
 }
 
 fn apply_plugin(
