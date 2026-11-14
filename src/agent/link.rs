@@ -9,6 +9,10 @@ use anyhow::Context;
 use crate::hash::hash_dir;
 use crate::state::LinkMode;
 
+/// Comma list of link kinds (`symlink`, `junction`) that fail as if not allowed here:
+/// a symlink without Windows Developer Mode, a junction to another volume (tests).
+pub const TEST_FAIL_VAR: &str = "AGSYNC_TEST_LINK_FAIL";
+
 /// Skill folders (or links to folders) in an agent skills dir: name to content hash.
 pub fn installed(skills_dir: &Path) -> anyhow::Result<BTreeMap<String, String>> {
     let mut found = BTreeMap::new();
@@ -121,17 +125,34 @@ fn move_to_backup(dir: &Path, backups: &Path, label: &str) -> anyhow::Result<()>
     std::fs::remove_dir_all(dir).with_context(|| format!("remover {}", dir.display()))
 }
 
+fn forced_to_fail(kind: &str) -> bool {
+    let kinds = std::env::var(TEST_FAIL_VAR).unwrap_or_default();
+    kinds.split(',').any(|k| k.trim() == kind)
+}
+
+/// Directory symlink. Forced to fail with `ERROR_PRIVILEGE_NOT_HELD`, the error of
+/// Windows without Developer Mode.
 #[cfg(windows)]
 fn symlink_dir(original: &Path, link: &Path) -> std::io::Result<()> {
+    if forced_to_fail("symlink") {
+        return Err(std::io::Error::from_raw_os_error(1314));
+    }
     std::os::windows::fs::symlink_dir(original, link)
 }
 
+/// Directory symlink. Forced to fail with `EPERM`.
 #[cfg(not(windows))]
 fn symlink_dir(original: &Path, link: &Path) -> std::io::Result<()> {
+    if forced_to_fail("symlink") {
+        return Err(std::io::Error::from_raw_os_error(1));
+    }
     std::os::unix::fs::symlink(original, link)
 }
 
 fn junction(original: &Path, link: &Path) -> anyhow::Result<()> {
+    if forced_to_fail("junction") {
+        anyhow::bail!("mklink /J falhou ({TEST_FAIL_VAR})");
+    }
     let status = std::process::Command::new("cmd")
         .arg("/C")
         .arg("mklink")
