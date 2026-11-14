@@ -55,9 +55,12 @@ fn set_path(path: &std::ffi::OsStr) {
     unsafe { std::env::set_var("PATH", path) };
 }
 
+/// Script that writes its `PATH` to `<dir>/path`.
 fn probe(dir: &Path) -> PathBuf {
     let script = dir.join("probe");
-    std::fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
+    let out = dir.join("path");
+    let text = format!("#!/bin/sh\nprintf '%s' \"$PATH\" > '{}'\n", out.display());
+    std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     script
@@ -114,8 +117,20 @@ fn systemd_then_cron_then_nothing() {
     }
     let exe = probe(env.root.path());
 
+    let mut long_path: Vec<PathBuf> = std::env::split_paths(&cleanup.path).collect();
+    long_path.extend(long_dirs(&env.root.path().join("long systemd")));
+    set_path(&std::env::join_paths(long_path).unwrap());
+    let frozen = schedule::current_frozen_path();
+    assert!(frozen.len() > 2000, "{}", frozen.len());
     schedule::for_this_machine().install(&exe, 15).unwrap();
     assert!(timer_enabled(&systemctl, &name), "systemd first");
+    let started = Command::new(&systemctl)
+        .args(["--user", "start", &format!("{name}.service")])
+        .status()
+        .unwrap();
+    assert!(started.success());
+    let seen = std::fs::read_to_string(env.root.path().join("path")).unwrap();
+    assert_eq!(seen, frozen);
     assert!(!cron_has(&crontab, &name));
     assert!(schedule::for_this_machine().remove().unwrap());
     assert!(!timer_enabled(&systemctl, &name));

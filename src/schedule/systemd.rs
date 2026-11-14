@@ -173,6 +173,22 @@ mod tests {
     }
 
     #[test]
+    fn long_path_with_spaces_and_parentheses_is_one_quoted_word() {
+        let dirs: Vec<String> = (0..60)
+            .map(|i| format!("/opt/Program Files (x86)/it's \"tool\" 100% {i}/bin"))
+            .collect();
+        let path = dirs.join(":");
+        assert!(path.len() > 2000);
+        let text = service_text(Path::new("/usr/bin/agsync"), &path);
+        let line = text
+            .lines()
+            .find(|l| l.starts_with("Environment="))
+            .unwrap();
+        let escaped = path.replace('"', "\\\"").replace('%', "%%");
+        assert_eq!(line, format!("Environment=\"PATH={escaped}\""));
+    }
+
+    #[test]
     fn timer_repeats_after_boot_and_each_run() {
         let text = timer_text(15);
         assert!(text.contains("\nOnBootSec=2min\n"));
