@@ -208,6 +208,91 @@ fn plugins_end_to_end_with_real_claude() {
     assert!(!env.data.join("state.json").exists());
 }
 
+/// HTTPS address the tests give the marketplace; git maps it to a local repo through
+/// `url.<base>.insteadOf`, because `claude plugin marketplace add` rejects `file://`.
+const REMOTE_MARKET: &str = "https://agsync.test/market.git";
+
+fn remote_market_yaml(ref_: &str) -> String {
+    format!(
+        "version: 1\nprofiles: [work]\nmcps: {{}}\nplugins:\n  - name: p1\n    marketplace: {{git: '{REMOTE_MARKET}', ref: {ref_}}}\n  - name: p2\n    marketplace: {{git: '{REMOTE_MARKET}', ref: {ref_}}}\n"
+    )
+}
+
+fn release(market: &Path, version: &str, tag: &str) {
+    write_marketplace(market, &[("p1", version), ("p2", version), ("p3", "1.0.0")]);
+    commit(market, version);
+    git(market, &["tag", tag]);
+}
+
+fn marketplace_ref(env: &Env) -> String {
+    let text = env.claude(&["plugin", "marketplace", "list", "--json"]);
+    let all: Vec<Value> = serde_json::from_str(&text).unwrap();
+    all.iter()
+        .find(|m| m["name"] == "test-market")
+        .map(|m| m["ref"].as_str().unwrap_or_default().to_string())
+        .unwrap_or_default()
+}
+
+#[test]
+fn plugins_switch_ref_of_remote_marketplace_with_real_claude() {
+    if claude_missing("plugins_switch_ref_of_remote_marketplace_with_real_claude") {
+        return;
+    }
+    let mut env = Env::new();
+    env.path = Some(path_with(&["git", "claude", "sh"], &[]));
+    let market = env.root.path().join("market");
+    std::fs::create_dir_all(&market).unwrap();
+    git(&market, &["init", "-q", "-b", "main"]);
+    release(&market, "1.0.0", "v1");
+    let base = format!("file:///{}", market.to_string_lossy().replace('\\', "/"));
+    env.vars = vec![
+        ("GIT_CONFIG_COUNT".to_string(), "1".to_string()),
+        (
+            "GIT_CONFIG_KEY_0".to_string(),
+            format!("url.{base}.insteadOf"),
+        ),
+        ("GIT_CONFIG_VALUE_0".to_string(), REMOTE_MARKET.to_string()),
+    ];
+    assert!(!agsync::plugin::is_local_marketplace(REMOTE_MARKET));
+
+    git(&env.remote, &["init", "-q", "-b", "main"]);
+    env.push(&remote_market_yaml("v1"));
+    let url = env.remote.to_string_lossy().to_string();
+    env.ok(&["init", &url, "--profile", "work"]);
+    env.ok(&["apply", "--yes"]);
+    assert_eq!(marketplace_ref(&env), "v1");
+    assert_eq!(plugin_version(&env, "p1@test-market"), "1.0.0");
+    assert_eq!(plugin_version(&env, "p2@test-market"), "1.0.0");
+
+    release(&market, "1.1.0", "v2");
+    env.push(&remote_market_yaml("v2"));
+    assert!(env.ok(&["status"]).contains("plugin p1: atualizar"));
+    env.ok(&["apply", "--yes"]);
+    assert_eq!(marketplace_ref(&env), "v2");
+    assert_eq!(plugin_version(&env, "p1@test-market"), "1.1.0");
+    assert_eq!(plugin_version(&env, "p2@test-market"), "1.1.0");
+    assert!(env.ok(&["status"]).contains("claude:\n  nada a mudar"));
+
+    env.claude(&[
+        "plugin",
+        "install",
+        "p3@test-market",
+        "--scope",
+        "user",
+        "--json",
+        "-y",
+    ]);
+    release(&market, "1.2.0", "v3");
+    env.push(&remote_market_yaml("v3"));
+    let (ok, out) = env.agsync(&["apply", "--yes"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("troque a ref a mao"), "{out}");
+    assert!(out.contains("p3@test-market"), "{out}");
+    assert_eq!(marketplace_ref(&env), "v2");
+    assert_eq!(plugin_version(&env, "p1@test-market"), "1.1.0");
+    assert!(has_plugin(&env, "p3@test-market"));
+}
+
 fn opencode_plugin_repo(root: &Path) -> PathBuf {
     std::fs::create_dir_all(root).unwrap();
     let package = r#"{"name":"oc-plugin-p1","version":"1.0.0","type":"module"}"#;
