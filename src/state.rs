@@ -57,6 +57,9 @@ pub struct AgentState {
 #[serde(deny_unknown_fields)]
 pub struct State {
     pub commit: Option<String>,
+    /// Commit applied before [`State::commit`], the target of `agsync rollback`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous: Option<String>,
     #[serde(default)]
     pub agents: BTreeMap<String, AgentState>,
 }
@@ -75,6 +78,16 @@ impl State {
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         let text = serde_json::to_string_pretty(self)?;
         crate::atomic::write_atomic(path, text.as_bytes())
+    }
+
+    /// Records `commit` as applied; the one before it becomes [`State::previous`].
+    pub fn applied(&mut self, commit: &str) {
+        if self.commit.as_deref() == Some(commit) {
+            return;
+        }
+        if let Some(old) = self.commit.replace(commit.to_string()) {
+            self.previous = Some(old);
+        }
     }
 
     pub fn agent(&self, name: &str) -> AgentState {
@@ -131,5 +144,23 @@ mod tests {
         assert_eq!(State::load(&file).unwrap(), state);
         assert_eq!(keys(&state.agent("claude").mcps)["echo"], "h1");
         assert_eq!(keys(&state.agent("claude").skills)["hello"], "h2@abc");
+    }
+
+    #[test]
+    fn a_new_commit_keeps_the_one_before_as_previous() {
+        let mut state = State::default();
+        state.applied("a");
+        assert_eq!(state.previous, None);
+        state.applied("a");
+        assert_eq!(state.previous, None);
+        state.applied("b");
+        assert_eq!(
+            (state.commit.as_deref(), state.previous.as_deref()),
+            (Some("b"), Some("a"))
+        );
+        state.applied("b");
+        assert_eq!(state.previous.as_deref(), Some("a"));
+        state.applied("a");
+        assert_eq!(state.previous.as_deref(), Some("b"));
     }
 }

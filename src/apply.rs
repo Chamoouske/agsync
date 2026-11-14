@@ -44,7 +44,7 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
             hints.extend(plan.adapter.reload_hint());
         }
     }
-    state.commit = Some(report.snapshot.commit.clone());
+    state.applied(&report.snapshot.commit);
     state.save(&report.dirs.state_file())?;
     report.snapshot.close()?;
     if failures == 0 {
