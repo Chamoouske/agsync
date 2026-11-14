@@ -2,8 +2,10 @@
 //! `agsync-check` is never created.
 //!
 //! The scheduled program is a probe script that only writes a file in the test's temp
-//! dir: a timer that fires runs nothing of the user. The systemd timer lives in the
-//! runtime dir, enabled with `--runtime`, so nothing lands in the home. The cron test
+//! dir: a timer that fires runs nothing of the user. The systemd test starts the
+//! service itself, since the first timer run waits for `OnBootSec` after a fresh boot.
+//! The systemd timer lives in the runtime dir, enabled with `--runtime`, so nothing
+//! lands in the home. The cron test
 //! keeps a line of someone else in the crontab. Guards remove the units and restore the
 //! crontab on drop, also when an assertion failed.
 
@@ -14,7 +16,6 @@ mod common;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
 
 use agsync::schedule::cron::Cron;
 use agsync::schedule::systemd::Systemd;
@@ -29,14 +30,17 @@ fn unique_name(kind: &str) -> String {
     format!("agsync-test-{kind}-{}-{nanos}", std::process::id())
 }
 
-/// Executable script that writes `<dir>/ran` with its arguments.
+/// Executable script that writes `<dir>/ran` with its arguments, then its `PATH`.
 fn probe(dir: &Path) -> PathBuf {
     let script = dir.join("probe dir").join("probe");
     std::fs::create_dir_all(script.parent().unwrap()).unwrap();
     let ran = dir.join("ran");
     std::fs::write(
         &script,
-        format!("#!/bin/sh\necho \"$@\" > '{}'\n", ran.display()),
+        format!(
+            "#!/bin/sh\necho \"$@\" > '{0}'\necho \"$PATH\" >> '{0}'\n",
+            ran.display()
+        ),
     )
     .unwrap();
     use std::os::unix::fs::PermissionsExt;
@@ -104,16 +108,8 @@ fn real_check_absent() {
     assert!(!table.contains("# agsync-check"), "{table}");
 }
 
-fn wait_for(what: &str, done: impl Fn() -> bool) {
-    let start = Instant::now();
-    while !done() {
-        assert!(start.elapsed() < Duration::from_secs(30), "timeout: {what}");
-        std::thread::sleep(Duration::from_millis(100));
-    }
-}
-
 #[test]
-fn systemd_user_timer_is_installed_fires_and_is_removed() {
+fn systemd_user_timer_is_installed_runs_and_is_removed() {
     if !systemctl(&["show-environment"]).0 {
         eprintln!("SKIP systemd: `systemctl --user` nao responde");
         return;
@@ -133,9 +129,12 @@ fn systemd_user_timer_is_installed_fires_and_is_removed() {
     assert_eq!(systemctl(&["is-active", &timer]).1, "active");
     let (_, shown) = systemctl(&["show", "-p", "TimersMonotonic", &timer]);
     assert!(shown.contains("OnUnitActiveUSec=15min"), "{shown}");
-    let ran = env.root.path().join("ran");
-    wait_for("timer runs the probe", || ran.is_file());
-    assert_eq!(std::fs::read_to_string(&ran).unwrap(), "check\n");
+    let (_, next) = systemctl(&["show", "-p", "NextElapseUSecMonotonic", &timer]);
+    assert!(!next.ends_with('='), "timer not scheduled: {next}");
+    let (started, out) = systemctl(&["start", &format!("{name}.service")]);
+    assert!(started, "{out}");
+    let ran = std::fs::read_to_string(env.root.path().join("ran")).unwrap();
+    assert!(ran.starts_with("check\n"), "{ran}");
 
     assert_eq!(systemd.status(&exe).unwrap(), Status::Current);
     let other = systemd.status(Path::new("/old/agsync")).unwrap();
