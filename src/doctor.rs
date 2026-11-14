@@ -3,7 +3,7 @@
 use crate::agent;
 use crate::git::{self, Snapshot};
 use crate::machine::Machine;
-use crate::manifest::{AGENTS, Manifest, selected};
+use crate::manifest::{Manifest, selected};
 use crate::mcp::McpSpec;
 use crate::paths::Dirs;
 use crate::secret::{self, Secrets};
@@ -102,8 +102,8 @@ fn check_git(checks: &mut Checks) {
 
 fn check_agents(checks: &mut Checks) {
     let mut found = 0;
-    for name in AGENTS {
-        match agent::detect(name) {
+    for (name, detect) in agent::AGENTS {
+        match detect() {
             Ok(adapter) => {
                 found += 1;
                 checks.ok(&format!("agente {name} detectado"));

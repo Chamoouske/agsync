@@ -57,13 +57,23 @@ pub trait Adapter {
     }
 }
 
-/// Adapter for `agent`, or the reason it is skipped on this machine.
-pub fn detect(agent: &str) -> Result<Box<dyn Adapter>, String> {
-    match agent {
-        "claude" => claude::Claude::detect().map(|c| Box::new(c) as Box<dyn Adapter>),
-        "codex" => codex::Codex::detect().map(|c| Box::new(c) as Box<dyn Adapter>),
-        "hermes" => hermes::Hermes::detect().map(|c| Box::new(c) as Box<dyn Adapter>),
-        "opencode" => opencode::OpenCode::detect().map(|c| Box::new(c) as Box<dyn Adapter>),
-        _ => Err(format!("agente desconhecido: {agent}")),
-    }
+/// Finds an agent on this machine, or says why it is skipped.
+pub type Detect = fn() -> Result<Box<dyn Adapter>, String>;
+
+/// Every agent agsync knows, in the order they are planned and shown. Adding an agent
+/// is one module plus one line here.
+pub const AGENTS: [(&str, Detect); 4] = [
+    ("claude", || boxed(claude::Claude::detect())),
+    ("codex", || boxed(codex::Codex::detect())),
+    ("opencode", || boxed(opencode::OpenCode::detect())),
+    ("hermes", || boxed(hermes::Hermes::detect())),
+];
+
+/// Names of every known agent, in table order.
+pub fn names() -> impl Iterator<Item = &'static str> {
+    AGENTS.iter().map(|(name, _)| *name)
+}
+
+fn boxed<A: Adapter + 'static>(found: Result<A, String>) -> Result<Box<dyn Adapter>, String> {
+    found.map(|adapter| Box::new(adapter) as Box<dyn Adapter>)
 }

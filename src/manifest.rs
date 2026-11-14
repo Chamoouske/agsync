@@ -6,9 +6,6 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_saphyr::Spanned;
 
-/// Agents an item can target.
-pub const AGENTS: [&str; 4] = ["claude", "codex", "opencode", "hermes"];
-
 /// Root of `agsync.yaml`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -221,8 +218,9 @@ fn check_agents(agents: &Option<Vec<String>>) -> anyhow::Result<()> {
         anyhow::bail!("agents vazio; omita para usar todos");
     }
     for agent in list {
-        if !AGENTS.contains(&agent.as_str()) {
-            anyhow::bail!("agente '{agent}' desconhecido (use {})", AGENTS.join(", "));
+        if !crate::agent::names().any(|known| known == agent) {
+            let known: Vec<&str> = crate::agent::names().collect();
+            anyhow::bail!("agente '{agent}' desconhecido (use {})", known.join(", "));
         }
     }
     Ok(())

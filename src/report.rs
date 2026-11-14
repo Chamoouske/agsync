@@ -6,7 +6,7 @@ use crate::agent::{self, Adapter};
 use crate::desired::{Context, Desired};
 use crate::git::{self, Snapshot};
 use crate::machine::Machine;
-use crate::manifest::{AGENTS, Manifest, selected, targets};
+use crate::manifest::{Manifest, selected, targets};
 use crate::paths::Dirs;
 use crate::plan::{Action, Change, plan};
 use crate::resolved::Resolved;
@@ -81,8 +81,8 @@ impl Report {
             sources: &sources,
         };
         let mut agents = Vec::new();
-        for agent in AGENTS {
-            let adapter = match agent::detect(agent) {
+        for (agent, detect) in agent::AGENTS {
+            let adapter = match detect() {
                 Ok(adapter) => adapter,
                 Err(reason) => {
                     skipped.push(format!("{agent}: {reason}"));
