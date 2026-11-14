@@ -5,6 +5,7 @@
 //! Skills are folders under `skills/`. Both live in `CLAUDE_CONFIG_DIR` when set,
 //! else `~/.claude.json` and `~/.claude/skills`.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,7 +18,7 @@ use crate::mcp::{McpSpec, hash_value};
 use crate::plugin::{PluginSpec, same_repo};
 
 /// One line of `claude plugin marketplace list --json`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct MarketplaceEntry {
     name: String,
     source: String,
@@ -63,7 +64,7 @@ impl MarketplaceEntry {
 }
 
 /// One line of `claude plugin list --json`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct InstalledPlugin {
     id: String,
     #[serde(default)]
@@ -81,6 +82,13 @@ impl InstalledPlugin {
     }
 }
 
+/// Last `marketplace list` and `plugin list`, cleared by every call that changes them.
+#[derive(Debug, Default)]
+struct Cache {
+    marketplaces: Option<Vec<MarketplaceEntry>>,
+    plugins: Option<Vec<InstalledPlugin>>,
+}
+
 /// Claude Code user-level config.
 #[derive(Debug)]
 pub struct Claude {
@@ -88,6 +96,7 @@ pub struct Claude {
     config_file: PathBuf,
     settings_file: PathBuf,
     skills_dir: PathBuf,
+    cache: RefCell<Cache>,
 }
 
 impl Claude {
@@ -103,6 +112,7 @@ impl Claude {
             config_file: home.join(".claude.json"),
             settings_file: home.join(".claude").join("settings.json"),
             skills_dir: home.join(".claude").join("skills"),
+            cache: RefCell::default(),
         })
     }
 
@@ -113,6 +123,7 @@ impl Claude {
             config_file: config_dir.join(".claude.json"),
             settings_file: config_dir.join("settings.json"),
             skills_dir: config_dir.join("skills"),
+            cache: RefCell::default(),
         }
     }
 
@@ -136,6 +147,7 @@ impl Claude {
 
     /// Runs one `claude` call. Output is only echoed when it cannot hold secrets.
     fn run(&self, args: &[&str], show_output: bool) -> anyhow::Result<()> {
+        self.cache.take();
         let mut cmd = Command::new(&self.exe);
         cmd.args(args);
         let what = format!("claude {}", args[..2].join(" "));
@@ -149,17 +161,27 @@ impl Claude {
     }
 
     fn marketplaces(&self) -> anyhow::Result<Vec<MarketplaceEntry>> {
-        cli::json(
+        if let Some(list) = &self.cache.borrow().marketplaces {
+            return Ok(list.clone());
+        }
+        let list: Vec<MarketplaceEntry> = cli::json(
             self.command(&["plugin", "marketplace", "list", "--json"]),
             "claude plugin marketplace list",
-        )
+        )?;
+        self.cache.borrow_mut().marketplaces = Some(list.clone());
+        Ok(list)
     }
 
     fn installed(&self) -> anyhow::Result<Vec<InstalledPlugin>> {
-        cli::json(
+        if let Some(list) = &self.cache.borrow().plugins {
+            return Ok(list.clone());
+        }
+        let list: Vec<InstalledPlugin> = cli::json(
             self.command(&["plugin", "list", "--json"]),
             "claude plugin list",
-        )
+        )?;
+        self.cache.borrow_mut().plugins = Some(list.clone());
+        Ok(list)
     }
 
     /// Installed plugins that belong to the user, not to the running session.
@@ -180,6 +202,7 @@ impl Claude {
 
     /// Adds the marketplace at `source` and returns the name declared in its catalog.
     fn add_marketplace(&self, source: &str) -> anyhow::Result<String> {
+        self.cache.take();
         let cmd = self.command(&[
             "plugin",
             "marketplace",
