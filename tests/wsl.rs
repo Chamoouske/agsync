@@ -168,6 +168,64 @@ fn programs_on_windows_drives_are_ignored() {
     );
 }
 
+/// `agsync <args>` with the real OS scheduler under a test name.
+fn real_scheduler(env: &Env, name: &str, args: &[&str]) -> (bool, String) {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_agsync"));
+    cmd.args(args);
+    env.isolate(&mut cmd);
+    cmd.env_remove("AGSYNC_TEST_SCHEDULE_FILE")
+        .env("AGSYNC_TEST_SCHEDULE_NAME", name);
+    let out = cmd.output().unwrap();
+    eprintln!("$ agsync {}\n{}", args.join(" "), text(&out));
+    (out.status.success(), text(&out))
+}
+
+#[test]
+fn without_systemd_and_cron_the_hook_starts_the_check() {
+    let mut env = Env::new();
+    let bin = fake_bin(&env, &["codex"]);
+    for tool in ["git", "sh"] {
+        let exe = agsync::which::find(tool).unwrap();
+        std::os::unix::fs::symlink(exe, bin.join(tool)).unwrap();
+    }
+    env.path = Some(bin.clone().into_os_string());
+    let log = env.root.path().join("fake.log");
+    env.vars = vec![(
+        "FAKE_AGENT_LOG".to_string(),
+        log.to_string_lossy().to_string(),
+    )];
+    git(&env.remote, &["init", "-q", "-b", "main"]);
+    env.push("version: 1\nmcps:\n  echo:\n    command: node\n");
+    let remote = env.remote.to_string_lossy().to_string();
+    let name = format!("agsync-test-hook-{}", std::process::id());
+
+    let (ok, out) = real_scheduler(
+        &env,
+        &name,
+        &["init", &remote, "--profile", "work", "--yes"],
+    );
+    assert!(ok, "{out}");
+    assert!(
+        out.contains("sem `systemctl --user` funcional nem `crontab`"),
+        "{out}"
+    );
+    assert!(out.contains("o `agsync hook` dispara o check"), "{out}");
+    let (ok, out) = real_scheduler(&env, &name, &["schedule", "status"]);
+    assert!(!ok && out.contains("agendamento ausente"), "{out}");
+    assert!(env.pending().is_none());
+
+    env.push("version: 1\nmcps:\n  echo:\n    command: node\n  more:\n    command: node\n");
+    let (ok, out) = real_scheduler(&env, &name, &["hook"]);
+    assert!(ok && out.is_empty(), "{out}");
+    let start = std::time::Instant::now();
+    while env.pending().is_none() {
+        assert!(start.elapsed().as_secs() < 60, "hook started no check");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let (_, out) = real_scheduler(&env, &name, &["hook"]);
+    assert!(out.contains("1 mudanca pendente"), "{out}");
+}
+
 #[test]
 fn check_in_wsl_never_calls_notify_send() {
     if !in_wsl("check_in_wsl_never_calls_notify_send") {
