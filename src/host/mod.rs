@@ -19,6 +19,10 @@ pub trait Host: Send + Sync {
     }
     /// How `agsync check` tells the user about news.
     fn notifier(&self) -> Box<dyn Notifier>;
+    /// Line `agsync doctor` shows about this host.
+    fn doctor_note(&self) -> Option<String> {
+        None
+    }
 }
 
 /// The host of this process, detected on first use.

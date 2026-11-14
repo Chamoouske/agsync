@@ -141,7 +141,24 @@ fn programs_on_windows_drives_are_ignored() {
     assert!(status.contains("codex:\n  mcp echo: adicionar"), "{status}");
 
     let doctor = env.agsync(&["doctor"]).1;
-    assert!(doctor.starts_with("ok      git version"), "{doctor}");
+    let first = doctor.lines().next().unwrap();
+    assert!(first.starts_with("info    WSL ("), "{doctor}");
+    assert!(
+        first.contains(&format!("home Linux ({})", env.home.display())),
+        "{first}"
+    );
+    assert!(
+        first.contains("o Windows precisa de instalacao propria"),
+        "{first}"
+    );
+    assert!(
+        doctor
+            .lines()
+            .nth(1)
+            .unwrap()
+            .starts_with("ok      git version"),
+        "{doctor}"
+    );
     assert!(!doctor.contains("fake windows git"), "{doctor}");
     env.ok(&["apply", "--yes"]);
     assert!(

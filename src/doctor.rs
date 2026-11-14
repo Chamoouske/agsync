@@ -38,6 +38,9 @@ impl Checks {
 /// Runs every check and prints one line each. Returns true if nothing is wrong.
 pub fn doctor() -> anyhow::Result<bool> {
     let mut checks = Checks::default();
+    if let Some(note) = crate::host::current().doctor_note() {
+        checks.info(&note);
+    }
     check_git(&mut checks);
     let dirs = Dirs::from_env()?;
     check_agents(&mut checks);

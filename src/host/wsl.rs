@@ -12,6 +12,8 @@ use super::Host;
 use crate::notify::{Notifier, TerminalOnly};
 
 pub struct Wsl {
+    /// `WSL_DISTRO_NAME`, when set.
+    pub distro: Option<String>,
     /// Where the Windows drives are mounted, `/mnt/` by default.
     pub mount_root: PathBuf,
 }
@@ -20,12 +22,13 @@ impl Wsl {
     /// Some when `/proc/sys/kernel/osrelease` names Microsoft or `WSL_DISTRO_NAME` is set.
     pub fn detect() -> Option<Wsl> {
         let release = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
-        let distro = std::env::var_os("WSL_DISTRO_NAME");
+        let distro = std::env::var("WSL_DISTRO_NAME").ok();
         if !is_wsl(&release, distro.is_some()) {
             return None;
         }
         let conf = std::fs::read_to_string("/etc/wsl.conf").unwrap_or_default();
         Some(Wsl {
+            distro,
             mount_root: mount_root(&conf),
         })
     }
@@ -46,6 +49,16 @@ impl Host for Wsl {
     fn notifier(&self) -> Box<dyn Notifier> {
         Box::new(TerminalOnly(
             "WSL: so aviso no terminal (`agsync hook`, `agsync status`)",
+        ))
+    }
+
+    fn doctor_note(&self) -> Option<String> {
+        let distro = self.distro.as_deref().unwrap_or("distro sem nome");
+        let home = crate::paths::home()
+            .map(|h| h.display().to_string())
+            .unwrap_or_else(|_| "$HOME".to_string());
+        Some(format!(
+            "WSL ({distro}): as configs dos agentes sao as do home Linux ({home}), nao as do Windows; o Windows precisa de instalacao propria do agsync",
         ))
     }
 }
@@ -82,6 +95,7 @@ mod tests {
 
     fn wsl(root: &str) -> Wsl {
         Wsl {
+            distro: Some("Ubuntu".into()),
             mount_root: PathBuf::from(root),
         }
     }
@@ -98,6 +112,14 @@ mod tests {
     fn never_notifies() {
         let error = wsl("/mnt/").notifier().notify("agsync", "x").unwrap_err();
         assert!(format!("{error}").contains("WSL"), "{error}");
+    }
+
+    #[test]
+    fn doctor_says_wsl_uses_the_linux_home() {
+        let note = wsl("/mnt/").doctor_note().unwrap();
+        assert!(note.starts_with("WSL (Ubuntu): "), "{note}");
+        assert!(note.contains("home Linux"), "{note}");
+        assert!(note.contains("instalacao propria do agsync"), "{note}");
     }
 
     #[test]
