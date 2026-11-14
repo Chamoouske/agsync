@@ -375,7 +375,7 @@ fn plan_plugins(
         if let Some(id) = &entry.plugin
             && adapter.plugin_present(id)?
         {
-            current.insert(name.clone(), crate::hash::hash_bytes(id.as_bytes()));
+            current.insert(name.clone(), entry.hash.clone());
         }
     }
     let changes = plan(
