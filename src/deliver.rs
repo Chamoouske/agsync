@@ -58,6 +58,7 @@ impl McpWant {
             hash: self.hash.clone(),
             mode: None,
             sha: self.sha.clone(),
+            plugin: None,
         }
     }
 

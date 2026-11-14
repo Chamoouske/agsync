@@ -52,7 +52,7 @@ pub fn uninstall(yes: bool, purge: bool) -> anyhow::Result<bool> {
 
 fn print_plan(dirs: &Dirs, purge: bool) {
     println!("agsync uninstall vai:");
-    println!("  remover dos agentes cada mcp e skill do state.json");
+    println!("  remover dos agentes cada mcp, skill e plugin do state.json");
     println!("  remover o agendamento do `agsync check` e o hook de todos os shells");
     println!("  apagar state.json e pending.json");
     if purge {
@@ -86,7 +86,7 @@ fn remove_entries(dirs: &Dirs) -> anyhow::Result<bool> {
         let Some(entries) = state.agents.remove(name) else {
             continue;
         };
-        let count = entries.mcps.len() + entries.skills.len();
+        let count = entries.mcps.len() + entries.skills.len() + entries.plugins.len();
         if count == 0 {
             continue;
         }
@@ -97,7 +97,7 @@ fn remove_entries(dirs: &Dirs) -> anyhow::Result<bool> {
                 AgentState::default()
             }
         };
-        if left.mcps.len() + left.skills.len() > 0 {
+        if left.mcps.len() + left.skills.len() + left.plugins.len() > 0 {
             ok = false;
             state.agents.insert(name.to_string(), left);
         }
@@ -131,6 +131,18 @@ fn remove_agent(name: &str, adapter: &dyn Adapter, entries: AgentState, dirs: &D
             Err(e) => {
                 eprintln!("{name}: skill {skill} falhou: {e:#}");
                 left.skills.insert(skill, tracked);
+            }
+        }
+    }
+    for (plugin, tracked) in entries.plugins {
+        let Some(id) = tracked.plugin.clone() else {
+            continue;
+        };
+        match adapter.uninstall_plugin(&id) {
+            Ok(()) => println!("{name}: plugin {plugin}: removido"),
+            Err(e) => {
+                eprintln!("{name}: plugin {plugin} falhou: {e:#}");
+                left.plugins.insert(plugin, tracked);
             }
         }
     }

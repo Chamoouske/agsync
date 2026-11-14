@@ -5,20 +5,63 @@
 //! Skills are folders under `skills/`. Both live in `CLAUDE_CONFIG_DIR` when set,
 //! else `~/.claude.json` and `~/.claude/skills`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::Context;
+use serde::Deserialize;
 
 use super::{Adapter, backup, cli};
 use crate::mcp::{McpSpec, hash_value};
+use crate::plugin::{PluginSpec, same_repo};
+
+/// One line of `claude plugin marketplace list --json`.
+#[derive(Debug, Deserialize)]
+struct MarketplaceEntry {
+    name: String,
+    source: String,
+    #[serde(default)]
+    repo: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default, rename = "ref")]
+    git_ref: Option<String>,
+}
+
+impl MarketplaceEntry {
+    fn matches(&self, git: &str) -> bool {
+        match self.source.as_str() {
+            "github" => self
+                .repo
+                .as_deref()
+                .is_some_and(|repo| same_repo(repo, git)),
+            "git" => self.url.as_deref().is_some_and(|url| same_repo(url, git)),
+            "directory" => self
+                .path
+                .as_deref()
+                .is_some_and(|path| same_repo(path, git)),
+            _ => false,
+        }
+    }
+}
+
+/// One line of `claude plugin list --json`.
+#[derive(Debug, Deserialize)]
+struct InstalledPlugin {
+    id: String,
+    #[serde(default)]
+    scope: Option<String>,
+}
 
 /// Claude Code user-level config.
 #[derive(Debug)]
 pub struct Claude {
     exe: PathBuf,
     config_file: PathBuf,
+    settings_file: PathBuf,
     skills_dir: PathBuf,
 }
 
@@ -33,6 +76,7 @@ impl Claude {
         Ok(Claude {
             exe,
             config_file: home.join(".claude.json"),
+            settings_file: home.join(".claude").join("settings.json"),
             skills_dir: home.join(".claude").join("skills"),
         })
     }
@@ -42,6 +86,7 @@ impl Claude {
         Claude {
             exe,
             config_file: config_dir.join(".claude.json"),
+            settings_file: config_dir.join("settings.json"),
             skills_dir: config_dir.join("skills"),
         }
     }
@@ -70,6 +115,143 @@ impl Claude {
         cmd.args(args);
         let what = format!("claude {}", args[..2].join(" "));
         cli::run(cmd, &what, show_output)
+    }
+
+    fn command(&self, args: &[&str]) -> Command {
+        let mut cmd = Command::new(&self.exe);
+        cmd.args(args);
+        cmd
+    }
+
+    fn marketplaces(&self) -> anyhow::Result<Vec<MarketplaceEntry>> {
+        cli::json(
+            self.command(&["plugin", "marketplace", "list", "--json"]),
+            "claude plugin marketplace list",
+        )
+    }
+
+    fn installed(&self) -> anyhow::Result<Vec<InstalledPlugin>> {
+        cli::json(
+            self.command(&["plugin", "list", "--json"]),
+            "claude plugin list",
+        )
+    }
+
+    /// Installed plugins that belong to the user, not to the running session.
+    fn user_plugins(&self) -> anyhow::Result<Vec<InstalledPlugin>> {
+        Ok(self
+            .installed()?
+            .into_iter()
+            .filter(|p| p.scope.as_deref() != Some("session"))
+            .collect())
+    }
+
+    fn marketplace_of(&self, spec: &PluginSpec) -> anyhow::Result<Option<MarketplaceEntry>> {
+        Ok(self
+            .marketplaces()?
+            .into_iter()
+            .find(|m| m.matches(&spec.git)))
+    }
+
+    /// Adds the marketplace and returns the name declared in its catalog.
+    fn add_marketplace(&self, spec: &PluginSpec) -> anyhow::Result<String> {
+        let source = spec.describe();
+        let cmd = self.command(&[
+            "plugin",
+            "marketplace",
+            "add",
+            &source,
+            "--scope",
+            "user",
+            "--json",
+        ]);
+        let out: serde_json::Value = cli::json(cmd, "claude plugin marketplace add")?;
+        let name = out
+            .get("marketplace")
+            .and_then(|v| v.as_str())
+            .filter(|name| !name.is_empty())
+            .context("claude plugin marketplace add nao retornou o nome do marketplace")?;
+        Ok(name.to_string())
+    }
+
+    /// A marketplace cannot change ref in place: remove it and add it again.
+    /// Refuses when the marketplace also holds plugins agsync does not manage.
+    fn switch_marketplace(
+        &self,
+        found: &MarketplaceEntry,
+        spec: &PluginSpec,
+        managed: &BTreeSet<String>,
+    ) -> anyhow::Result<String> {
+        let suffix = format!("@{}", found.name);
+        let installed: Vec<String> = self
+            .user_plugins()?
+            .into_iter()
+            .map(|p| p.id)
+            .filter(|id| id.ends_with(&suffix))
+            .collect();
+        let untracked: Vec<&String> = installed
+            .iter()
+            .filter(|id| !managed.contains(*id))
+            .collect();
+        if !untracked.is_empty() {
+            anyhow::bail!(
+                "marketplace '{}' tambem tem plugins fora do agsync ({}); troque a ref a mao",
+                found.name,
+                untracked
+                    .iter()
+                    .map(|id| id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        self.run(
+            &[
+                "plugin",
+                "marketplace",
+                "remove",
+                &found.name,
+                "--scope",
+                "user",
+                "--json",
+            ],
+            true,
+        )?;
+        let name = self.add_marketplace(spec)?;
+        let own = format!("{}@", spec.name);
+        let mut failed = Vec::new();
+        for id in &installed {
+            if let Err(e) = self.run(
+                &["plugin", "install", id, "--scope", "user", "--json", "-y"],
+                true,
+            ) && !id.starts_with(&own)
+            {
+                failed.push(format!("{id}: {e:#}"));
+            }
+        }
+        if !failed.is_empty() {
+            anyhow::bail!(
+                "marketplace '{}' trocado, mas estes plugins nao voltaram: {}",
+                name,
+                failed.join("; ")
+            );
+        }
+        Ok(name)
+    }
+
+    /// Marketplace name for `spec`, adding it or moving it to the requested ref.
+    fn ensure_marketplace(
+        &self,
+        spec: &PluginSpec,
+        managed: &BTreeSet<String>,
+    ) -> anyhow::Result<String> {
+        match self.marketplace_of(spec)? {
+            Some(found) if spec.is_local() => Ok(found.name),
+            Some(found) if found.git_ref.as_deref() == Some(spec.git_ref.as_str()) => {
+                Ok(found.name)
+            }
+            Some(found) => self.switch_marketplace(&found, spec, managed),
+            None => self.add_marketplace(spec),
+        }
     }
 }
 
@@ -100,7 +282,8 @@ impl Adapter for Claude {
     }
 
     fn backup(&self, dir: &Path) -> anyhow::Result<()> {
-        backup::copy(&self.config_file, dir, "claude.json")
+        backup::copy(&self.config_file, dir, "claude.json")?;
+        backup::copy(&self.settings_file, dir, "settings.json")
     }
 
     fn write_mcp(&self, name: &str, spec: &McpSpec) -> anyhow::Result<()> {
@@ -123,6 +306,75 @@ impl Adapter for Claude {
         self.run(&["mcp", "remove", "--scope", "user", name], true)?;
         if self.has_server(name)? {
             anyhow::bail!("mcp '{name}' continua no arquivo apos remove");
+        }
+        Ok(())
+    }
+
+    fn plugin_support(&self) -> Result<(), String> {
+        self.user_plugins()
+            .map(|_| ())
+            .map_err(|e| format!("`claude plugin list` falhou: {e:#}"))
+    }
+
+    fn plugin_installed(&self, spec: &PluginSpec) -> anyhow::Result<Option<String>> {
+        let marketplaces: BTreeSet<String> = self
+            .marketplaces()?
+            .into_iter()
+            .filter(|m| m.matches(&spec.git))
+            .map(|m| m.name)
+            .collect();
+        let ids = self.user_plugins()?;
+        Ok(ids
+            .into_iter()
+            .map(|p| p.id)
+            .find(|id| match id.split_once('@') {
+                Some((name, marketplace)) => {
+                    name == spec.name && marketplaces.contains(marketplace)
+                }
+                None => false,
+            }))
+    }
+
+    fn plugin_present(&self, id: &str) -> anyhow::Result<bool> {
+        Ok(self.user_plugins()?.iter().any(|p| p.id == id))
+    }
+
+    fn install_plugin(
+        &self,
+        spec: &PluginSpec,
+        managed: &BTreeSet<String>,
+    ) -> anyhow::Result<String> {
+        let marketplace = self.ensure_marketplace(spec, managed)?;
+        let id = format!("{}@{marketplace}", spec.name);
+        self.run(
+            &["plugin", "install", &id, "--scope", "user", "--json", "-y"],
+            true,
+        )?;
+        if let Err(e) = self.run(&["plugin", "update", &id, "--json", "-y"], true) {
+            eprintln!("aviso: claude plugin update {id}: {e:#}");
+        }
+        Ok(id)
+    }
+
+    fn uninstall_plugin(&self, id: &str) -> anyhow::Result<()> {
+        if !self.plugin_present(id)? {
+            return Ok(());
+        }
+        self.run(
+            &[
+                "plugin",
+                "uninstall",
+                id,
+                "--scope",
+                "user",
+                "--keep-data",
+                "--json",
+                "-y",
+            ],
+            true,
+        )?;
+        if self.plugin_present(id)? {
+            anyhow::bail!("plugin '{id}' continua instalado apos uninstall");
         }
         Ok(())
     }
@@ -165,6 +417,54 @@ mod tests {
         let backups = dir.join("backups");
         claude.backup(&backups).unwrap();
         assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn marketplace_entry_matches_every_source_kind() {
+        let github = MarketplaceEntry {
+            name: "m".into(),
+            source: "github".into(),
+            repo: Some("owner/repo".into()),
+            url: None,
+            path: None,
+            git_ref: None,
+        };
+        assert!(github.matches("owner/repo"));
+        assert!(github.matches("https://github.com/owner/repo.git"));
+        assert!(!github.matches("owner/other"));
+
+        let git = MarketplaceEntry {
+            name: "m".into(),
+            source: "git".into(),
+            repo: None,
+            url: Some("https://gitlab.example.com/group/market.git".into()),
+            path: None,
+            git_ref: Some("v1".into()),
+        };
+        assert!(git.matches("https://gitlab.example.com/group/market"));
+        assert!(git.matches("git@gitlab.example.com:group/market.git"));
+        assert!(!git.matches("https://gitlab.example.com/group/other.git"));
+
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let local = MarketplaceEntry {
+            name: "m".into(),
+            source: "directory".into(),
+            repo: None,
+            url: None,
+            path: Some(tmp.path().to_string_lossy().to_string()),
+            git_ref: None,
+        };
+        assert!(local.matches(&tmp.path().to_string_lossy()));
+
+        let unknown = MarketplaceEntry {
+            name: "m".into(),
+            source: "npm".into(),
+            repo: None,
+            url: None,
+            path: None,
+            git_ref: None,
+        };
+        assert!(!unknown.matches("owner/repo"));
     }
 
     #[test]

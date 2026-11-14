@@ -8,6 +8,7 @@ use crate::hash::hash_dir;
 use crate::manifest::{Manifest, Mcp, selected, targets};
 use crate::mcp::McpSpec;
 use crate::plan::Want;
+use crate::plugin::PluginSpec;
 use crate::resolved::Resolved;
 use crate::secret::Secrets;
 use crate::state::{LinkMode, Tracked, state_key};
@@ -27,6 +28,7 @@ impl SkillSrc {
             hash: self.hash.clone(),
             mode,
             sha: self.sha.clone(),
+            plugin: None,
         }
     }
 
@@ -53,6 +55,7 @@ pub struct Context<'a> {
 pub struct Desired {
     pub mcps: BTreeMap<String, McpWant>,
     pub skills: BTreeMap<String, SkillSrc>,
+    pub plugins: BTreeMap<String, PluginSpec>,
     /// Selected MCPs left untouched this time (state and agent entry kept as they are).
     pub held_mcps: BTreeSet<String>,
     /// Selected skills left untouched this time.
@@ -98,6 +101,19 @@ impl Desired {
             let hash = hash_dir(&dir)?;
             desired.skills.insert(name, SkillSrc { dir, hash, sha });
         }
+        for plugin in &ctx.manifest.plugins {
+            let plugin = &plugin.value;
+            let wanted = selected(&plugin.profiles, ctx.active) && targets(&plugin.agents, agent);
+            if !wanted {
+                continue;
+            }
+            let spec = PluginSpec::new(
+                plugin.name.clone(),
+                plugin.marketplace.git.clone(),
+                plugin.marketplace.git_ref.clone(),
+            );
+            desired.plugins.insert(plugin.name.clone(), spec);
+        }
         Ok(desired)
     }
 
@@ -120,6 +136,13 @@ impl Desired {
         self.skills
             .iter()
             .map(|(name, src)| (name.clone(), src.want()))
+            .collect()
+    }
+
+    pub fn plugin_wants(&self) -> BTreeMap<String, Want> {
+        self.plugins
+            .iter()
+            .map(|(name, spec)| (name.clone(), spec.want()))
             .collect()
     }
 }
@@ -164,6 +187,15 @@ skills:
   - git: https://x/remote.git
     ref: v2
     path: sub/remote-skill
+plugins:
+  - name: all-plugin
+    marketplace: {git: https://x/market.git, ref: v1}
+  - name: work-plugin
+    profiles: [work]
+    marketplace: {git: https://x/market.git, ref: v1}
+  - name: claude-plugin
+    agents: [claude]
+    marketplace: {git: https://x/market.git, ref: v1}
 "#;
 
     fn setup() -> (TempDir, Manifest) {
@@ -222,13 +254,23 @@ skills:
         let claude = desired(&tmp, &m, &src, &["work"], "claude");
         assert_eq!(names(&claude.mcps), ["all", "built", "work_only"]);
         assert_eq!(names(&claude.skills), ["hello", "remote-skill"]);
+        assert_eq!(
+            names(&claude.plugins),
+            ["all-plugin", "claude-plugin", "work-plugin"]
+        );
+        assert_eq!(
+            claude.plugins["all-plugin"].want().key,
+            claude.plugin_wants()["all-plugin"].key
+        );
 
         let codex = desired(&tmp, &m, &src, &["work"], "codex");
         assert!(codex.mcps.contains_key("codex_only"));
+        assert_eq!(names(&codex.plugins), ["all-plugin", "work-plugin"]);
 
         let both = desired(&tmp, &m, &src, &["work", "personal"], "claude");
         assert_eq!(both.mcps.len(), 4);
         assert_eq!(both.skills.len(), 3);
+        assert_eq!(both.plugins.len(), 3);
     }
 
     #[test]

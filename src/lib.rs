@@ -26,6 +26,7 @@ pub mod notify;
 pub mod paths;
 pub mod pending;
 pub mod plan;
+pub mod plugin;
 pub mod prompt;
 pub mod report;
 pub mod resolved;

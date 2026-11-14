@@ -1,5 +1,6 @@
 //! Snapshot the config repo and plan every agent: shared by status, diff and apply.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::agent::{self, Adapter};
@@ -21,6 +22,9 @@ pub struct AgentPlan {
     pub desired: Desired,
     pub mcps: Vec<Change>,
     pub skills: Vec<Change>,
+    pub plugins: Vec<Change>,
+    /// Id the agent already uses for each desired plugin.
+    pub plugin_ids: BTreeMap<String, String>,
 }
 
 impl AgentPlan {
@@ -28,7 +32,10 @@ impl AgentPlan {
     pub fn visible(&self) -> impl Iterator<Item = (&'static str, &Change)> {
         let mcps = self.mcps.iter().map(|c| ("mcp", c));
         let skills = self.skills.iter().map(|c| ("skill", c));
-        mcps.chain(skills).filter(|(_, c)| c.action != Action::Keep)
+        let plugins = self.plugins.iter().map(|c| ("plugin", c));
+        mcps.chain(skills)
+            .chain(plugins)
+            .filter(|(_, c)| c.action != Action::Keep)
     }
 
     fn detail(&self, kind: &str, change: &Change) -> String {
@@ -36,6 +43,12 @@ impl AgentPlan {
         match (kind, spec) {
             ("mcp", Some(want)) if change.action != Action::Conflict => {
                 format!(" [{}]", want.shown.describe())
+            }
+            ("plugin", _) if change.action != Action::Conflict => {
+                match self.desired.plugins.get(&change.name) {
+                    Some(plugin) => format!(" [{}]", plugin.describe()),
+                    None => String::new(),
+                }
             }
             _ => String::new(),
         }
@@ -150,17 +163,30 @@ impl Report {
                 adopt,
             );
             skills.retain(|c| !desired.held_skills.contains(&c.name));
+            let (plugins, plugin_ids) = plan_plugins(
+                adapter.as_ref(),
+                &desired,
+                &tracked,
+                adopt,
+                agent,
+                &mut skipped,
+            )?;
             agents.push(AgentPlan {
                 agent,
                 adapter,
                 desired,
                 mcps,
                 skills,
+                plugins,
+                plugin_ids,
             });
         }
         let builds = needed_builds(&sources, &agents);
         let reach: Vec<SkillReach> = agents.iter().map(SkillReach::of).collect();
-        let warnings = seen_anyway(manifest, &machine.profiles, &reach);
+        let mut warnings = seen_anyway(manifest, &machine.profiles, &reach);
+        warnings.extend(duplicate_items(
+            agents.iter().map(|p| (p.agent, &p.desired)),
+        ));
         let watched = sources.watched.clone();
         Ok(Report {
             dirs,
@@ -317,6 +343,71 @@ fn seen_anyway(manifest: &Manifest, active: &[String], reach: &[SkillReach]) -> 
     lines
 }
 
+/// Plans plugins for one agent. An agent whose CLI has no non-interactive plugin
+/// support is left out, with the reason in `skipped`.
+fn plan_plugins(
+    adapter: &dyn Adapter,
+    desired: &Desired,
+    tracked: &crate::state::AgentState,
+    adopt: bool,
+    agent: &str,
+    skipped: &mut Vec<String>,
+) -> anyhow::Result<(Vec<Change>, BTreeMap<String, String>)> {
+    if desired.plugins.is_empty() && tracked.plugins.is_empty() {
+        return Ok((Vec::new(), BTreeMap::new()));
+    }
+    if let Err(reason) = adapter.plugin_support() {
+        skipped.push(format!("{agent}: plugins: {reason}"));
+        return Ok((Vec::new(), BTreeMap::new()));
+    }
+    let mut current = BTreeMap::new();
+    let mut ids = BTreeMap::new();
+    for (name, spec) in &desired.plugins {
+        if let Some(id) = adapter.plugin_installed(spec)? {
+            current.insert(name.clone(), spec.hash());
+            ids.insert(name.clone(), id);
+        }
+    }
+    for (name, entry) in &tracked.plugins {
+        if desired.plugins.contains_key(name) {
+            continue;
+        }
+        if let Some(id) = &entry.plugin
+            && adapter.plugin_present(id)?
+        {
+            current.insert(name.clone(), crate::hash::hash_bytes(id.as_bytes()));
+        }
+    }
+    let changes = plan(
+        &desired.plugin_wants(),
+        &keys(&tracked.plugins),
+        &current,
+        adopt,
+    );
+    Ok((changes, ids))
+}
+
+/// Names configured both as a plugin and as an MCP or skill for the same agent.
+fn duplicate_items<'a>(agents: impl Iterator<Item = (&'static str, &'a Desired)>) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (agent, desired) in agents {
+        for (name, spec) in &desired.plugins {
+            for (kind, present) in [
+                ("mcps", desired.mcps.contains_key(name)),
+                ("skills", desired.skills.contains_key(name)),
+            ] {
+                if present {
+                    lines.push(format!(
+                        "plugin {name} ({}) tambem esta em {kind} para {agent}; pode duplicar no agente",
+                        spec.describe()
+                    ));
+                }
+            }
+        }
+    }
+    lines
+}
+
 /// Same folder on disk when both exist, else the same path.
 fn same_dir(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
@@ -409,6 +500,69 @@ skills:
         let only_codex = seen_anyway(&m, &[], &agents(claude, &["codex", "opencode"]));
         assert_eq!(only_codex.len(), 1);
         assert!(only_codex[0].contains("skill both"));
+    }
+
+    #[test]
+    fn plugin_also_declared_as_mcp_or_skill_is_warned_per_agent() {
+        use crate::deliver::McpWant;
+        use crate::desired::SkillSrc;
+        use crate::mcp::McpSpec;
+        use crate::plugin::PluginSpec;
+
+        let mut desired = Desired::default();
+        for name in ["both", "mcp-only", "skill-only"] {
+            let spec = PluginSpec::new(name, "https://x/market.git", "v1");
+            desired.plugins.insert(name.to_string(), spec);
+        }
+        let mcp = McpSpec::Http {
+            url: "https://x".into(),
+            headers: BTreeMap::new(),
+        };
+        desired.mcps.insert(
+            "both".into(),
+            McpWant {
+                shown: mcp.clone(),
+                write: mcp,
+                hash: "h".into(),
+                sha: None,
+            },
+        );
+        desired.mcps.insert(
+            "mcp-only".into(),
+            McpWant {
+                shown: McpSpec::Http {
+                    url: "https://y".into(),
+                    headers: BTreeMap::new(),
+                },
+                write: McpSpec::Http {
+                    url: "https://y".into(),
+                    headers: BTreeMap::new(),
+                },
+                hash: "h2".into(),
+                sha: None,
+            },
+        );
+        desired.skills.insert(
+            "both".into(),
+            SkillSrc {
+                dir: PathBuf::from("/tmp/skill"),
+                hash: "h3".into(),
+                sha: None,
+            },
+        );
+
+        let lines = duplicate_items([("claude", &desired), ("codex", &desired)].into_iter());
+        assert_eq!(lines.len(), 6, "{lines:?}");
+        assert!(
+            lines[0].contains("plugin both")
+                && lines[0].contains("mcps")
+                && lines[0].contains("claude"),
+            "{lines:?}"
+        );
+        assert!(lines[1].contains("plugin both") && lines[1].contains("skills"));
+        assert!(lines[2].contains("plugin mcp-only") && lines[2].contains("mcps"));
+        assert!(lines[3].contains("plugin both") && lines[3].contains("codex"));
+        assert!(lines.iter().all(|l| !l.contains("skill-only")));
     }
 
     #[test]

@@ -25,6 +25,9 @@ pub struct Tracked {
     /// Commit of the git source, for items built or copied from one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha: Option<String>,
+    /// Id the agent uses to uninstall a plugin (`name@marketplace` or package spec).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
 }
 
 impl Tracked {
@@ -50,6 +53,8 @@ pub struct AgentState {
     pub mcps: BTreeMap<String, Tracked>,
     #[serde(default)]
     pub skills: BTreeMap<String, Tracked>,
+    #[serde(default)]
+    pub plugins: BTreeMap<String, Tracked>,
 }
 
 /// Whole state file.
@@ -128,6 +133,7 @@ mod tests {
                 hash: "h1".into(),
                 mode: None,
                 sha: None,
+                plugin: None,
             },
         );
         claude.skills.insert(
@@ -136,14 +142,29 @@ mod tests {
                 hash: "h2".into(),
                 mode: Some(LinkMode::Junction),
                 sha: Some("abc".into()),
+                plugin: None,
+            },
+        );
+        claude.plugins.insert(
+            "p1".into(),
+            Tracked {
+                hash: "h3".into(),
+                mode: None,
+                sha: None,
+                plugin: Some("p1@mkt".into()),
             },
         );
         state.save(&file).unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("\"junction\""));
         assert_eq!(State::load(&file).unwrap(), state);
+        assert!(text.contains("\"plugin\": \"p1@mkt\""));
         assert_eq!(keys(&state.agent("claude").mcps)["echo"], "h1");
         assert_eq!(keys(&state.agent("claude").skills)["hello"], "h2@abc");
+        assert_eq!(
+            state.agent("claude").plugins["p1"].plugin.as_deref(),
+            Some("p1@mkt")
+        );
     }
 
     #[test]

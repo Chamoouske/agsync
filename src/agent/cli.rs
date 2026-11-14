@@ -26,3 +26,27 @@ pub fn run(mut cmd: Command, what: &str, show_output: bool) -> anyhow::Result<()
     );
     anyhow::bail!("{what} falhou (exit {code}): {}", text.trim());
 }
+
+/// Runs `cmd` and returns its stdout. Errors carry the exit code and stderr.
+pub fn output(mut cmd: Command, what: &str) -> anyhow::Result<String> {
+    let out = cmd
+        .stdin(Stdio::null())
+        .output()
+        .with_context(|| format!("executar {what}"))?;
+    if out.status.success() {
+        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
+    }
+    let code = out.status.code().unwrap_or(-1);
+    let text = format!(
+        "{} {}",
+        String::from_utf8_lossy(&out.stdout).trim(),
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    anyhow::bail!("{what} falhou (exit {code}): {}", text.trim());
+}
+
+/// Runs `cmd` and parses its whole stdout as JSON.
+pub fn json<T: serde::de::DeserializeOwned>(cmd: Command, what: &str) -> anyhow::Result<T> {
+    let text = output(cmd, what)?;
+    serde_json::from_str(text.trim()).with_context(|| format!("{what}: JSON invalido"))
+}

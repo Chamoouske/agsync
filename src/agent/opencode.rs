@@ -12,7 +12,7 @@
 //! keeping comments and formatting. Skills are folders under `<config dir>/skills`;
 //! OpenCode also loads `~/.claude/skills` and `~/.agents/skills`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -24,6 +24,7 @@ use serde_json::Value;
 use super::{Adapter, backup, cli};
 use crate::hash::hash_bytes;
 use crate::mcp::McpSpec;
+use crate::plugin::PluginSpec;
 use crate::secret::{substitute, valid_name};
 
 const FILES: [&str; 2] = ["opencode.json", "opencode.jsonc"];
@@ -105,6 +106,36 @@ impl OpenCode {
     fn written_hash(&self, name: &str) -> anyhow::Result<Option<String>> {
         Ok(self.servers()?.get(name).map(entry_hash))
     }
+
+    fn command(&self, args: &[&str]) -> Command {
+        let mut cmd = Command::new(&self.exe);
+        cmd.env("OPENCODE_CONFIG_DIR", &self.dir).args(args);
+        cmd
+    }
+
+    /// Plugin specifiers in the config, from both the v2 `plugins` array and the v1
+    /// `plugin` array in either file.
+    fn plugin_config(&self) -> anyhow::Result<BTreeSet<String>> {
+        let mut found = BTreeSet::new();
+        for file in self.files() {
+            let Some(root) = read(&file)? else {
+                continue;
+            };
+            for key in ["plugins", "plugin"] {
+                for item in root
+                    .get(key)
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                {
+                    if let Some(text) = item.as_str() {
+                        found.insert(text.to_string());
+                    }
+                }
+            }
+        }
+        Ok(found)
+    }
 }
 
 impl Adapter for OpenCode {
@@ -165,6 +196,58 @@ impl Adapter for OpenCode {
             dirs.push(home.join(".agents").join("skills"));
         }
         dirs
+    }
+
+    fn plugin_support(&self) -> Result<(), String> {
+        cli::output(
+            self.command(&["plugin", "--help"]),
+            "opencode plugin --help",
+        )
+        .map(|_| ())
+        .map_err(|e| format!("`opencode plugin` indisponivel: {e:#}"))
+    }
+
+    fn plugin_installed(&self, spec: &PluginSpec) -> anyhow::Result<Option<String>> {
+        let package = spec.opencode_package();
+        Ok(self.plugin_config()?.contains(&package).then_some(package))
+    }
+
+    fn plugin_present(&self, id: &str) -> anyhow::Result<bool> {
+        Ok(self.plugin_config()?.contains(id))
+    }
+
+    fn install_plugin(
+        &self,
+        spec: &PluginSpec,
+        _managed: &BTreeSet<String>,
+    ) -> anyhow::Result<String> {
+        std::fs::create_dir_all(&self.dir)
+            .with_context(|| format!("criar {}", self.dir.display()))?;
+        let package = spec.opencode_package();
+        cli::run(
+            self.command(&["plugin", "add", &package]),
+            "opencode plugin add",
+            false,
+        )?;
+        if !self.plugin_present(&package)? {
+            anyhow::bail!("opencode nao gravou o plugin '{package}' como esperado");
+        }
+        Ok(package)
+    }
+
+    fn uninstall_plugin(&self, id: &str) -> anyhow::Result<()> {
+        if !self.plugin_present(id)? {
+            return Ok(());
+        }
+        cli::run(
+            self.command(&["plugin", "remove", id]),
+            "opencode plugin remove",
+            false,
+        )?;
+        if self.plugin_present(id)? {
+            anyhow::bail!("plugin '{id}' continua na config do opencode");
+        }
+        Ok(())
     }
 
     fn reload_hint(&self) -> Option<&'static str> {
@@ -370,6 +453,23 @@ mod tests {
         };
         assert_eq!(mcps["gone"], gone.hash());
         assert_eq!(oc.add_target(), tmp.path().join("opencode.json"));
+    }
+
+    #[test]
+    fn reads_plugins_from_both_keys_and_files() {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let oc = OpenCode::at(PathBuf::from("opencode-not-called"), tmp.path().into());
+        assert!(oc.plugin_config().unwrap().is_empty());
+
+        let jsonc = r#"{"plugins": ["git+https://x/v2.git#v2", 7]}"#;
+        let json = r#"{"plugin": ["git+https://x/v1.git#v1"]}"#;
+        std::fs::write(tmp.path().join("opencode.jsonc"), jsonc).unwrap();
+        std::fs::write(tmp.path().join("opencode.json"), json).unwrap();
+        let found = oc.plugin_config().unwrap();
+        assert_eq!(
+            found.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["git+https://x/v1.git#v1", "git+https://x/v2.git#v2"]
+        );
     }
 
     #[test]

@@ -1,9 +1,10 @@
 //! Agent adapters: one per coding agent, all speaking the neutral MCP model.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::mcp::{McpSpec, RefSpot};
+use crate::plugin::PluginSpec;
 use crate::state::LinkMode;
 
 pub mod backup;
@@ -49,6 +50,33 @@ pub trait Adapter {
     /// Removes one skill folder or link.
     fn remove_skill(&self, name: &str, backups: &Path) -> anyhow::Result<()> {
         link::clear(&self.skills_dir().join(name), backups)
+    }
+    /// Checks once that the CLI has non-interactive plugin commands. The default is
+    /// no support, with the reason shown by `status`.
+    fn plugin_support(&self) -> Result<(), String> {
+        Err("CLI sem comandos nao interativos de plugins".to_string())
+    }
+    /// Id the agent already uses for `spec`, if it is installed.
+    fn plugin_installed(&self, _spec: &PluginSpec) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+    /// True if the agent still has the plugin recorded under `id`.
+    fn plugin_present(&self, _id: &str) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+    /// Installs or updates one plugin and returns the id to record. `managed` holds
+    /// every plugin id agsync tracks for this agent; some CLIs need it to avoid
+    /// touching plugins installed by hand.
+    fn install_plugin(
+        &self,
+        _spec: &PluginSpec,
+        _managed: &BTreeSet<String>,
+    ) -> anyhow::Result<String> {
+        anyhow::bail!("agente sem suporte a plugins")
+    }
+    /// Removes one plugin by the id returned by [`Adapter::install_plugin`].
+    fn uninstall_plugin(&self, _id: &str) -> anyhow::Result<()> {
+        anyhow::bail!("agente sem suporte a plugins")
     }
     /// Warnings `agsync doctor` shows for this agent; they are not problems.
     fn doctor_notes(&self) -> Vec<String> {

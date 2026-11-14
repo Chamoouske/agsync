@@ -106,6 +106,7 @@ mod tests {
             hash: hash.into(),
             mode: None,
             sha: sha.map(String::from),
+            plugin: None,
         }
     }
 
