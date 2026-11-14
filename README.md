@@ -312,6 +312,22 @@ Risco: o Defender deixa de examinar esse arquivo. Faca isso so depois de conferi
 
 4. Para ajudar a corrigir a deteccao, envie o arquivo como falso positivo em <https://www.microsoft.com/wdsi/filesubmission>.
 
+## Contribuindo: CI obrigatoria
+
+Toda mudanca entra em `master` por PR. O ruleset `master` do GitHub ([`.github/rulesets/master.json`](.github/rulesets/master.json)) exige:
+
+- os checks `check (ubuntu-latest)` e `check (windows-latest)` do workflow `ci` (`cargo fmt --check`, `cargo clippy -D warnings` e `cargo test`), vindos do GitHub Actions;
+- a branch do PR atualizada com `master` antes do merge;
+- nenhum push direto, force push ou remocao de `master`.
+
+Enquanto um check obrigatorio estiver pendente, rodando ou falho, o botao de merge fica bloqueado. Nao ha excecao por autor ou aprovador, nem para admins: o ruleset nao tem bypass. Se um check falhar, corrija na branch e faca push; o CI roda de novo. Se `master` andar, atualize a branch ("Update branch") e espere o CI.
+
+Admins do repo podem editar ou desativar o ruleset em Settings > Rules. Para reaplicar a versao do repo:
+
+```bash
+gh api -X PUT repos/Chamoouske/agsync/rulesets/27269112 --input .github/rulesets/master.json
+```
+
 ## Migracao a partir do agent-config
 
 O sistema antigo (APM, 1MCP e os scripts do agent-config) e substituido assim:
