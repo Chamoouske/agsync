@@ -85,6 +85,10 @@ impl Adapter for Hermes {
         self.home.join("skills")
     }
 
+    fn doctor_notes(&self) -> Vec<String> {
+        legacy_home(cfg!(windows)).into_iter().collect()
+    }
+
     fn backup(&self, dir: &Path) -> anyhow::Result<()> {
         backup::copy(&self.config_file(), dir, "hermes-config.yaml")
     }
@@ -125,6 +129,26 @@ pub fn home_dir() -> anyhow::Result<PathBuf> {
         return Ok(PathBuf::from(local).join("hermes"));
     }
     Ok(crate::paths::home()?.join(".hermes"))
+}
+
+/// Windows only: a `~/.hermes` left from WSL or an old install, while native Hermes
+/// reads `%LOCALAPPDATA%\hermes`. agsync never writes there unless `HERMES_HOME` says so.
+fn legacy_home(windows: bool) -> Option<String> {
+    if !windows || std::env::var_os("HERMES_HOME").is_some() {
+        return None;
+    }
+    let legacy = crate::paths::home().ok()?.join(".hermes");
+    if !legacy.is_dir() {
+        return None;
+    }
+    let native = home_dir().ok()?;
+    Some(format!(
+        "{} existe, mas o Hermes nativo do Windows usa {}; o agsync nao escreve em {}. \
+         Se essa e a pasta em uso, defina HERMES_HOME",
+        legacy.display(),
+        native.display(),
+        legacy.display()
+    ))
 }
 
 /// The entry Hermes stores, as JSON for `hermes config set`.
@@ -234,5 +258,34 @@ mod tests {
         assert_eq!(to_spec(&entry), Some(spec));
         let sse = json!({"url": "https://x/sse", "transport": "sse"});
         assert_eq!(to_spec(&sse), None);
+    }
+    #[test]
+    fn legacy_hermes_folder_is_only_flagged_on_windows() {
+        let tmp = crate::tmp::TempDir::new("agsync-test").unwrap();
+        std::fs::create_dir_all(tmp.path().join(".hermes")).unwrap();
+        let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        let old_home = std::env::var_os(var);
+        let old_hermes = std::env::var_os("HERMES_HOME");
+        unsafe {
+            std::env::set_var(var, tmp.path());
+            std::env::set_var("LOCALAPPDATA", tmp.path().join("local"));
+            std::env::remove_var("HERMES_HOME");
+        }
+        let text = legacy_home(true).unwrap();
+        assert!(text.contains(".hermes existe"), "{text}");
+        assert!(text.contains("HERMES_HOME"), "{text}");
+        assert!(legacy_home(false).is_none());
+        unsafe { std::env::set_var("HERMES_HOME", tmp.path()) };
+        assert!(legacy_home(true).is_none());
+        unsafe {
+            match old_home {
+                Some(v) => std::env::set_var(var, v),
+                None => std::env::remove_var(var),
+            }
+            match old_hermes {
+                Some(v) => std::env::set_var("HERMES_HOME", v),
+                None => std::env::remove_var("HERMES_HOME"),
+            }
+        }
     }
 }

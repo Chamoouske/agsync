@@ -47,6 +47,10 @@ pub trait Adapter {
     fn remove_skill(&self, name: &str, backups: &Path) -> anyhow::Result<()> {
         link::clear(&self.skills_dir().join(name), backups)
     }
+    /// Warnings `agsync doctor` shows for this agent; they are not problems.
+    fn doctor_notes(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// What to tell the user after agsync changed this agent, beyond restarting it.
     fn reload_hint(&self) -> Option<&'static str> {
         None
