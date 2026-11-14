@@ -39,6 +39,12 @@ enum Cmd {
         #[arg(long)]
         adopt: bool,
     },
+    /// Apply again the commit applied before the current one, through the normal plan.
+    Rollback {
+        /// Apply without asking; required when stdin is not a terminal.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Read the remote only; record pending changes and notify once. Run by the scheduler.
     Check,
     /// Print the pending line; no network. Started by the shell profile.
@@ -116,6 +122,7 @@ fn main() {
         Cmd::Status => agsync::report::status().map(|()| true),
         Cmd::Diff => agsync::report::diff().map(|()| true),
         Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt).map(|()| true),
+        Cmd::Rollback { yes } => agsync::rollback::rollback(yes).map(|()| true),
         Cmd::Check => agsync::check::check().map(|()| true),
         Cmd::Hook { command } => match command {
             None => agsync::hook::hook().map(|()| true),

@@ -28,6 +28,7 @@ pub mod plan;
 pub mod prompt;
 pub mod report;
 pub mod resolved;
+pub mod rollback;
 pub mod schedule;
 pub mod secret;
 pub mod shell;
