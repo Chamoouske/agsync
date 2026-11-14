@@ -2,8 +2,6 @@
 //!
 //! Each step reports its own failure; later steps still run when they make sense.
 
-use std::io::IsTerminal;
-
 use crate::git;
 use crate::machine::Machine;
 use crate::paths::Dirs;
@@ -14,6 +12,7 @@ pub fn init(
     git_ref: Option<String>,
     profiles: Vec<String>,
     yes: bool,
+    silent: bool,
 ) -> anyhow::Result<bool> {
     let dirs = Dirs::from_env()?;
     let machine = Machine::new(url, git_ref, profiles);
@@ -55,21 +54,24 @@ pub fn init(
     });
 
     println!("[5/5] primeiro apply");
-    let applied = first_apply(reachable, yes);
+    let applied = first_apply(reachable, yes, silent);
     Ok(reachable && hooked && applied)
 }
 
-fn first_apply(reachable: bool, yes: bool) -> bool {
+fn first_apply(reachable: bool, yes: bool, silent: bool) -> bool {
     if !reachable {
         println!("pulado: repo inacessivel; corrija e rode `agsync apply`");
         return true;
     }
-    if !yes && !std::io::stdin().is_terminal() {
-        println!("pulado (sem TTY): rode `agsync apply --yes`");
-        return true;
+    if silent {
+        println!("atualizacao silenciosa: aplicando sem perguntar");
     }
-    match crate::apply::apply(yes, false) {
-        Ok(()) => true,
+    match crate::apply::init_apply(yes, silent) {
+        Ok(true) => true,
+        Ok(false) => {
+            println!("pulado (sem TTY): rode `agsync apply --yes`");
+            true
+        }
         Err(e) => {
             eprintln!("apply falhou: {e:#}");
             false

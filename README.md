@@ -67,6 +67,8 @@ Opcoes:
 - `--ref <branch|tag|sha>`: o padrao e `main`.
 - `--profile` pode repetir.
 - `--yes`: instala o hook e aplica sem perguntar.
+- `--silent-update`: aplica as atualizacoes pendentes sem perguntar, como `agsync apply --yes`, tambem sem terminal. O hook de shell continua perguntando. O resultado (aplicados, pulados, falhas) continua impresso, e uma falha faz o `init` sair com erro.
+- `silentUpdate: true` no `agsync.yaml` tem o mesmo efeito para toda maquina que seguir o repo. Sem a opcao, vale o fluxo interativo.
 
 Repo privado: o `git` precisa de credencial propria, como chave SSH ou credential helper. O agsync nunca pede senha.
 
@@ -77,6 +79,7 @@ Fica na raiz do repo de config.
 ```yaml
 version: 1
 profiles: [work, personal]
+silentUpdate: false   # opcional; true faz o `init` aplicar sem perguntar
 
 mcps:
   context7:

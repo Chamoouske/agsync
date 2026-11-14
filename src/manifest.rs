@@ -19,6 +19,9 @@ pub struct Manifest {
     pub skills: Vec<Spanned<Skill>>,
     #[serde(default)]
     pub plugins: Vec<Spanned<Plugin>>,
+    /// `agsync init` applies without asking, as with `--silent-update`.
+    #[serde(rename = "silentUpdate", default)]
+    pub silent_update: bool,
 }
 
 /// One plugin entry from a marketplace.

@@ -25,6 +25,11 @@ enum Cmd {
         /// Install the shell hook and apply without asking.
         #[arg(long)]
         yes: bool,
+        /// Apply pending updates without asking, as `agsync apply --yes` does; the shell
+        /// hook question stays. What was applied, skipped or failed is still printed.
+        /// `silentUpdate: true` in agsync.yaml does the same.
+        #[arg(long)]
+        silent_update: bool,
     },
     /// Show applied and remote commits, pending changes, drift, conflicts and skips.
     Status,
@@ -133,7 +138,8 @@ fn main() {
             git_ref,
             profiles,
             yes,
-        } => agsync::init::init(url, git_ref, profiles, yes),
+            silent_update,
+        } => agsync::init::init(url, git_ref, profiles, yes, silent_update),
         Cmd::Status => agsync::report::status().map(|()| true),
         Cmd::Diff => agsync::report::diff().map(|()| true),
         Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt).map(|()| true),
