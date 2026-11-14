@@ -9,15 +9,16 @@ use super::{Scheduler, Status};
 pub struct Linux {
     systemd: Option<Systemd>,
     systemd_works: bool,
-    cron: bool,
+    cron: Option<Cron>,
 }
 
 impl Linux {
-    pub fn detect() -> Linux {
+    /// Picks what works on this machine; `systemd` and `cron` name the same schedule.
+    pub fn detect(systemd: anyhow::Result<Systemd>, cron: Cron) -> Linux {
         Linux {
-            systemd: Systemd::for_user().ok(),
+            systemd: systemd.ok(),
             systemd_works: Systemd::works(),
-            cron: Cron::available(),
+            cron: Cron::available().then_some(cron),
         }
     }
 }
@@ -27,8 +28,8 @@ impl Scheduler for Linux {
         if let (Some(systemd), true) = (&self.systemd, self.systemd_works) {
             return systemd.install(exe, minutes);
         }
-        if self.cron {
-            return Cron.install(exe, minutes);
+        if let Some(cron) = &self.cron {
+            return cron.install(exe, minutes);
         }
         anyhow::bail!(
             "sem `systemctl --user` funcional nem `crontab`: o `agsync hook` dispara o check quando o shell abre"
@@ -40,8 +41,8 @@ impl Scheduler for Linux {
         if let Some(systemd) = &self.systemd {
             removed |= systemd.remove()?;
         }
-        if self.cron {
-            removed |= Cron.remove()?;
+        if let Some(cron) = &self.cron {
+            removed |= cron.remove()?;
         }
         Ok(removed)
     }
@@ -53,8 +54,8 @@ impl Scheduler for Linux {
                 return Ok(found);
             }
         }
-        if self.cron {
-            return Cron.status(exe);
+        if let Some(cron) = &self.cron {
+            return cron.status(exe);
         }
         Ok(Status::Missing)
     }

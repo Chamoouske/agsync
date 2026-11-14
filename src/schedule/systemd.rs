@@ -1,25 +1,44 @@
-//! Linux: `agsync-check.service` + `agsync-check.timer` in the systemd user dir.
+//! Linux: `<name>.service` + `<name>.timer` in the systemd user dir.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
 
-use super::{NAME, Scheduler, Status};
+use super::{Scheduler, Status};
 
 pub struct Systemd {
-    /// `~/.config/systemd/user`, or under `XDG_CONFIG_HOME`.
+    /// `~/.config/systemd/user` (or under `XDG_CONFIG_HOME`), or the runtime dir.
     pub dir: PathBuf,
+    /// Unit name without suffix.
+    pub name: String,
+    /// Enabled with `--runtime`: nothing lands in the home and the timer is gone after
+    /// logout.
+    pub runtime: bool,
 }
 
 impl Systemd {
-    pub fn for_user() -> anyhow::Result<Systemd> {
+    /// Units in the user's config dir, kept across logins.
+    pub fn for_user(name: &str) -> anyhow::Result<Systemd> {
         let config = match std::env::var_os("XDG_CONFIG_HOME") {
             Some(dir) => PathBuf::from(dir),
             None => crate::paths::home()?.join(".config"),
         };
         Ok(Systemd {
             dir: config.join("systemd").join("user"),
+            name: name.to_string(),
+            runtime: false,
+        })
+    }
+
+    /// Units in `$XDG_RUNTIME_DIR/systemd/user`, enabled with `--runtime`. Test
+    /// schedules use it, so they never touch the user's home.
+    pub fn runtime(name: &str) -> anyhow::Result<Systemd> {
+        let dir = std::env::var_os("XDG_RUNTIME_DIR").context("XDG_RUNTIME_DIR nao definida")?;
+        Ok(Systemd {
+            dir: PathBuf::from(dir).join("systemd").join("user"),
+            name: name.to_string(),
+            runtime: true,
         })
     }
 
@@ -29,11 +48,22 @@ impl Systemd {
     }
 
     fn service(&self) -> PathBuf {
-        self.dir.join(format!("{NAME}.service"))
+        self.dir.join(format!("{}.service", self.name))
     }
 
     fn timer(&self) -> PathBuf {
-        self.dir.join(format!("{NAME}.timer"))
+        self.dir.join(format!("{}.timer", self.name))
+    }
+
+    /// `systemctl --user <verb> [--runtime] --now <name>.timer`.
+    fn switch_timer(&self, verb: &str) -> anyhow::Result<()> {
+        let timer = format!("{}.timer", self.name);
+        let mut args = vec![verb];
+        if self.runtime {
+            args.push("--runtime");
+        }
+        args.extend(["--now", &timer]);
+        systemctl(&args)
     }
 }
 
@@ -43,7 +73,7 @@ impl Scheduler for Systemd {
         crate::atomic::write_atomic(&self.service(), service_text(exe, &path).as_bytes())?;
         crate::atomic::write_atomic(&self.timer(), timer_text(minutes).as_bytes())?;
         systemctl(&["daemon-reload"])?;
-        systemctl(&["enable", "--now", &format!("{NAME}.timer")])?;
+        self.switch_timer("enable")?;
         Ok(vec![frozen_path_note("na unit", &self.service())])
     }
 
@@ -51,7 +81,7 @@ impl Scheduler for Systemd {
         if !self.service().exists() && !self.timer().exists() {
             return Ok(false);
         }
-        let _ = systemctl(&["disable", "--now", &format!("{NAME}.timer")]);
+        let _ = self.switch_timer("disable");
         for file in [self.timer(), self.service()] {
             if file.exists() {
                 std::fs::remove_file(&file)
@@ -155,6 +185,8 @@ mod tests {
         let tmp = crate::tmp::TempDir::new("agsync-test").unwrap();
         let systemd = Systemd {
             dir: tmp.path().to_path_buf(),
+            name: "agsync-check".to_string(),
+            runtime: false,
         };
         let exe = Path::new("/opt/my \"x\"/agsync");
         assert_eq!(systemd.status(exe).unwrap(), Status::Missing);

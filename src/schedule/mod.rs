@@ -44,6 +44,11 @@ pub trait Scheduler {
     fn status(&self, exe: &Path) -> anyhow::Result<Status>;
 }
 
+/// When set to `agsync-test-<anything>`, the OS scheduler is used under that name
+/// instead of [`NAME`], so tests never create the real schedule. On Linux the systemd
+/// units then live in the runtime dir ([`systemd::Systemd::runtime`]).
+pub const TEST_NAME_VAR: &str = "AGSYNC_TEST_SCHEDULE_NAME";
+
 /// The file scheduler when [`TEST_FILE_VAR`] is set, else the one of this OS.
 pub fn for_this_machine() -> Box<dyn Scheduler> {
     match std::env::var_os(TEST_FILE_VAR) {
@@ -52,14 +57,27 @@ pub fn for_this_machine() -> Box<dyn Scheduler> {
     }
 }
 
+/// The name from [`TEST_NAME_VAR`], when it has the test prefix.
+fn test_name() -> Option<String> {
+    let name = std::env::var(TEST_NAME_VAR).ok()?;
+    name.starts_with("agsync-test-").then_some(name)
+}
+
 #[cfg(windows)]
 fn system() -> Box<dyn Scheduler> {
-    Box::new(task::TaskScheduler::new(NAME))
+    let name = test_name().unwrap_or_else(|| NAME.to_string());
+    Box::new(task::TaskScheduler::new(&name))
 }
 
 #[cfg(not(windows))]
 fn system() -> Box<dyn Scheduler> {
-    Box::new(linux::Linux::detect())
+    use cron::Cron;
+    use systemd::Systemd;
+    let linux = match test_name() {
+        Some(name) => linux::Linux::detect(Systemd::runtime(&name), Cron::new(&name)),
+        None => linux::Linux::detect(Systemd::for_user(NAME), Cron::new(NAME)),
+    };
+    Box::new(linux)
 }
 
 /// `agsync schedule install`: every `check_interval_minutes` of `machine.toml` (default 15).
