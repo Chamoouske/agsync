@@ -42,11 +42,26 @@ enum Cmd {
     Hook,
     /// Check git, the config repo, agents, requires, secrets and source repos.
     Doctor,
+    /// Register, remove or show the periodic `agsync check`.
+    Schedule {
+        #[command(subcommand)]
+        command: ScheduleCmd,
+    },
     /// Manage secrets.env, the local file for `${VAR}` values.
     Secret {
         #[command(subcommand)]
         command: SecretCmd,
     },
+}
+
+#[derive(Subcommand)]
+enum ScheduleCmd {
+    /// Run `agsync check` every `check_interval_minutes` (Task Scheduler, systemd or cron).
+    Install,
+    /// Delete the periodic check.
+    Remove,
+    /// Show whether the check is registered and runs this binary.
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -85,6 +100,11 @@ fn main() {
         Cmd::Check => agsync::check::check().map(|()| true),
         Cmd::Hook => agsync::hook::hook().map(|()| true),
         Cmd::Doctor => agsync::doctor::doctor(),
+        Cmd::Schedule { command } => match command {
+            ScheduleCmd::Install => agsync::schedule::install().map(|()| true),
+            ScheduleCmd::Remove => agsync::schedule::remove().map(|()| true),
+            ScheduleCmd::Status => agsync::schedule::status(),
+        },
         Cmd::Secret {
             command: SecretCmd::Set { name },
         } => agsync::cmd::secret_set(&name).map(|()| true),

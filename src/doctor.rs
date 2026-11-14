@@ -6,6 +6,7 @@ use crate::machine::Machine;
 use crate::manifest::{Manifest, selected};
 use crate::mcp::McpSpec;
 use crate::paths::Dirs;
+use crate::schedule::{self, Status};
 use crate::secret::{self, Secrets};
 use crate::source;
 
@@ -42,6 +43,7 @@ pub fn doctor() -> anyhow::Result<bool> {
     check_agents(&mut checks);
     check_secrets_file(&mut checks, &dirs);
     check_backups(&mut checks, &dirs);
+    check_schedule(&mut checks);
     let machine = match Machine::load(&dirs.machine_file()) {
         Ok(machine) => machine,
         Err(e) => {
@@ -147,6 +149,19 @@ fn check_backups(checks: &mut Checks, dirs: &Dirs) {
             dir.display()
         )),
         Err(e) => checks.problem(&format!("permissao de {}: {e:#}", dir.display())),
+    }
+}
+
+fn check_schedule(checks: &mut Checks) {
+    let exe = match schedule::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => return checks.problem(&format!("{e:#}")),
+    };
+    match schedule::for_this_machine().status(&exe) {
+        Ok(found @ Status::Current) => checks.ok(&schedule::describe(&found, &exe)),
+        Ok(found @ Status::Missing) => checks.warn(&schedule::describe(&found, &exe)),
+        Ok(found @ Status::Other(_)) => checks.problem(&schedule::describe(&found, &exe)),
+        Err(e) => checks.problem(&format!("agendamento: {e:#}")),
     }
 }
 

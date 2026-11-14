@@ -25,6 +25,7 @@ pub mod pending;
 pub mod plan;
 pub mod report;
 pub mod resolved;
+pub mod schedule;
 pub mod secret;
 pub mod source;
 pub mod state;
