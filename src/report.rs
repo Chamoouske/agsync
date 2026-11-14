@@ -23,7 +23,8 @@ pub struct AgentPlan {
     pub mcps: Vec<Change>,
     pub skills: Vec<Change>,
     pub plugins: Vec<Change>,
-    /// Id the agent already uses for each desired plugin.
+    /// Id the agent already uses for each desired plugin: from the declared source, or
+    /// the manual install of the same name that `--adopt` replaces.
     pub plugin_ids: BTreeMap<String, String>,
 }
 
@@ -409,6 +410,12 @@ fn plan_plugins(
     for (name, spec) in &desired.plugins {
         if let Some(id) = adapter.plugin_installed(spec)? {
             current.insert(name.clone(), spec.hash());
+            ids.insert(name.clone(), id);
+            continue;
+        }
+        let tracked_here = tracked.plugins.contains_key(name);
+        if !tracked_here && let Some(id) = adapter.plugin_named(name)? {
+            current.insert(name.clone(), id.clone());
             ids.insert(name.clone(), id);
         }
     }
