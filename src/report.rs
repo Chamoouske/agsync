@@ -13,7 +13,7 @@ use crate::plan::{Action, Change, plan};
 use crate::resolved::{Resolved, Watched};
 use crate::secret::{self, Secrets};
 use crate::source::BuildJob;
-use crate::state::{State, keys};
+use crate::state::{AgentState, State, keys};
 
 /// Plan for one agent that has an adapter on this machine.
 pub struct AgentPlan {
@@ -28,6 +28,43 @@ pub struct AgentPlan {
 }
 
 impl AgentPlan {
+    /// Plans every MCP, skill and plugin of one agent. Each kind is planned against the
+    /// agent's entries of that kind only, so a homonym of another kind never matches.
+    pub fn new(
+        agent: &'static str,
+        adapter: Box<dyn Adapter>,
+        desired: Desired,
+        tracked: &AgentState,
+        adopt: bool,
+        skipped: &mut Vec<String>,
+    ) -> anyhow::Result<AgentPlan> {
+        let mut mcps = plan(
+            &desired.mcp_wants(),
+            &keys(&tracked.mcps),
+            &adapter.mcps()?,
+            adopt,
+        );
+        mcps.retain(|c| !desired.held_mcps.contains(&c.name));
+        let mut skills = plan(
+            &desired.skill_wants(),
+            &keys(&tracked.skills),
+            &adapter.skills()?,
+            adopt,
+        );
+        skills.retain(|c| !desired.held_skills.contains(&c.name));
+        let (plugins, plugin_ids) =
+            plan_plugins(adapter.as_ref(), &desired, tracked, adopt, agent, skipped)?;
+        Ok(AgentPlan {
+            agent,
+            adapter,
+            desired,
+            mcps,
+            skills,
+            plugins,
+            plugin_ids,
+        })
+    }
+
     /// Changes worth showing (everything but `Keep`).
     pub fn visible(&self) -> impl Iterator<Item = (&'static str, &Change)> {
         let mcps = self.mcps.iter().map(|c| ("mcp", c));
@@ -149,37 +186,8 @@ impl Report {
             let desired = Desired::for_agent(&ctx, agent, &|spot| adapter.keeps_ref(spot))?;
             skipped.extend(desired.skipped.iter().cloned());
             let tracked = state.agent(agent);
-            let mut mcps = plan(
-                &desired.mcp_wants(),
-                &keys(&tracked.mcps),
-                &adapter.mcps()?,
-                adopt,
-            );
-            mcps.retain(|c| !desired.held_mcps.contains(&c.name));
-            let mut skills = plan(
-                &desired.skill_wants(),
-                &keys(&tracked.skills),
-                &adapter.skills()?,
-                adopt,
-            );
-            skills.retain(|c| !desired.held_skills.contains(&c.name));
-            let (plugins, plugin_ids) = plan_plugins(
-                adapter.as_ref(),
-                &desired,
-                &tracked,
-                adopt,
-                agent,
-                &mut skipped,
-            )?;
-            agents.push(AgentPlan {
-                agent,
-                adapter,
-                desired,
-                mcps,
-                skills,
-                plugins,
-                plugin_ids,
-            });
+            let plan = AgentPlan::new(agent, adapter, desired, &tracked, adopt, &mut skipped)?;
+            agents.push(plan);
         }
         let builds = needed_builds(&sources, &agents);
         let reach: Vec<SkillReach> = agents.iter().map(SkillReach::of).collect();
@@ -348,7 +356,7 @@ fn seen_anyway(manifest: &Manifest, active: &[String], reach: &[SkillReach]) -> 
 fn plan_plugins(
     adapter: &dyn Adapter,
     desired: &Desired,
-    tracked: &crate::state::AgentState,
+    tracked: &AgentState,
     adopt: bool,
     agent: &str,
     skipped: &mut Vec<String>,
