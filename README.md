@@ -112,6 +112,18 @@ skills:
     name: team-review
     profiles: [work]
     agents: [claude]
+
+plugins:
+  - name: code-review
+    marketplace:
+      git: https://gitlab.example.com/group/marketplace.git
+      ref: v1.4.0
+  - name: team-review
+    profiles: [work]
+    agents: [claude, opencode]
+    marketplace:
+      git: https://gitlab.example.com/group/marketplace.git
+      ref: v1.4.0
 ```
 
 Campos:
@@ -133,6 +145,12 @@ Campos:
   - `path`: pasta no repo de config ou, com `git` e `ref`, pasta dentro de outro repo.
   - `name`: o padrao e o ultimo segmento do `path`.
   - `profiles` e `agents`: como nos MCPs.
+- `plugins[]`: um plugin publicado em um marketplace git.
+  - `name`: o nome declarado no catalogo do marketplace.
+  - `marketplace.git` e `marketplace.ref`: obrigatorios. O `ref` aceita branch, tag ou SHA completo; SHA abreviado e recusado. Um marketplace pode ter varias entradas, sempre com a mesma `ref`.
+  - `profiles` e `agents`: como nos MCPs.
+  - Credenciais ficam no credential helper do git. URL com senha ou token embutido e recusada.
+  - Veja [Plugins](#plugins) para o suporte de cada agente.
 - `${VAR}`: aceito em `command`, `args`, `env`, `url` e `headers`. Veja [Segredos](#segredos).
 
 Uma fonte em branch ou tag e seguida: um commit novo nela tambem aparece no `check`.
@@ -212,6 +230,30 @@ Um agente e detectado pelo executavel no PATH. Um agente ausente e pulado e apar
 Skills sao copiadas para um cache em `<dados>/skills` e ligadas no agente. A ordem de tentativa e symlink, depois junction (Windows), depois copia.
 
 MCPs so valem depois de reiniciar o agente.
+
+## Plugins
+
+So o que foi instalado pelo agsync e registrado no `state.json`. Plugin instalado a mao nunca e alterado nem removido.
+
+| agente | suporte | como |
+|---|---|---|
+| Claude Code | sim | `claude plugin marketplace add` e `plugin install/update/uninstall` |
+| OpenCode | sim | `opencode plugin add/remove`, gravando o array `plugins` |
+| Codex | nao | o CLI nao instala plugin de forma nao interativa; o item e pulado com o motivo no `status` |
+| Hermes | nao | idem |
+
+- O `check` acusa plugin adicionado, com `ref` nova e removido do `agsync.yaml`.
+- O `diff` e a confirmacao do `apply` listam as mudancas de plugin por agente.
+- Plugin que sai do `agsync.yaml` e desinstalado no `apply` seguinte.
+- Plugin de perfil inativo nao e baixado nem instalado.
+- O `diff` avisa quando um plugin tem o mesmo nome de um MCP ou skill do mesmo agente: os dois podem aparecer lado a lado no agente.
+- O `uninstall` desinstala os plugins do `state.json`; os dados do plugin ficam no disco (`--keep-data` no Claude).
+
+Limitacoes:
+
+- Marketplace em pasta local: o Claude le a pasta direto e nao aceita `ref` nela. A `ref` continua na identidade do plugin, entao troca-la ainda gera um `update`.
+- Trocar a `ref` de um marketplace remoto: o Claude nao troca a `ref` no lugar, e remover o marketplace desinstala todos os plugins dele. O agsync remove e readiciona o marketplace e reinstala o que gerencia, cada plugin no seu escopo. Se a `ref` nova nao puder ser adicionada, ele readiciona a `ref` antiga com os plugins e diz o que nao voltou. Se houver plugin fora do agsync no mesmo marketplace, ele recusa e pede a troca manual.
+- O marketplace em si fica registrado no Claude; o agsync nao remove marketplaces no `uninstall`.
 
 ## WSL
 

@@ -17,6 +17,29 @@ pub struct Manifest {
     pub mcps: BTreeMap<String, Spanned<Mcp>>,
     #[serde(default)]
     pub skills: Vec<Spanned<Skill>>,
+    #[serde(default)]
+    pub plugins: Vec<Spanned<Plugin>>,
+}
+
+/// One plugin entry from a marketplace.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Plugin {
+    pub name: String,
+    pub profiles: Option<Vec<String>>,
+    pub agents: Option<Vec<String>>,
+    pub marketplace: Marketplace,
+}
+
+/// Where a plugin is published.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Marketplace {
+    /// Git URL, GitHub shorthand or a local folder with `.claude-plugin`.
+    pub git: String,
+    /// Required; the default lets [`Manifest::validate_plugin`] name the line.
+    #[serde(rename = "ref", default)]
+    pub git_ref: String,
 }
 
 /// One MCP server entry.
@@ -120,7 +143,42 @@ impl Manifest {
                 );
             }
         }
+        let mut plugin_names = BTreeMap::new();
+        let mut marketplaces: BTreeMap<String, (String, u64)> = BTreeMap::new();
+        for plugin in &self.plugins {
+            let line = plugin.defined.line();
+            let plugin = &plugin.value;
+            self.validate_plugin(plugin).map_err(|e| {
+                anyhow::anyhow!("agsync.yaml linha {line}: plugin '{}': {e}", plugin.name)
+            })?;
+            if let Some(first) = plugin_names.insert(plugin.name.clone(), line) {
+                anyhow::bail!(
+                    "agsync.yaml linha {line}: plugin '{}' repetido (ja definido na linha {first})",
+                    plugin.name
+                );
+            }
+            let source = crate::plugin::repo_key(&plugin.marketplace.git);
+            match marketplaces.get(&source) {
+                Some((git_ref, first)) if git_ref != &plugin.marketplace.git_ref => anyhow::bail!(
+                    "agsync.yaml linha {line}: marketplace '{}' ja usa a ref '{git_ref}' na linha {first}; \
+                     use uma ref so por marketplace",
+                    plugin.marketplace.git
+                ),
+                Some(_) => {}
+                None => {
+                    marketplaces.insert(source, (plugin.marketplace.git_ref.clone(), line));
+                }
+            }
+        }
         Ok(())
+    }
+
+    fn validate_plugin(&self, plugin: &Plugin) -> anyhow::Result<()> {
+        check_name(&plugin.name)?;
+        self.check_profiles(&plugin.profiles)?;
+        check_agents(&plugin.agents)?;
+        check_git_url(&plugin.marketplace.git)?;
+        check_ref(Some(&plugin.marketplace.git_ref), "marketplace")
     }
 
     fn validate_mcp(&self, name: &str, mcp: &Mcp) -> anyhow::Result<()> {
@@ -227,11 +285,37 @@ fn check_agents(agents: &Option<Vec<String>>) -> anyhow::Result<()> {
 }
 
 fn check_ref(git_ref: Option<&str>, field: &str) -> anyhow::Result<()> {
-    let Some(git_ref) = git_ref else {
+    let Some(git_ref) = git_ref.filter(|r| !r.trim().is_empty()) else {
         anyhow::bail!("{field} exige ref");
     };
     if crate::git::is_short_sha(git_ref) {
         anyhow::bail!("ref '{git_ref}' parece SHA abreviado; use o SHA completo");
+    }
+    Ok(())
+}
+
+/// Rejects a git URL carrying a password or token: git credentials belong to the
+/// machine's credential helper, not to `agsync.yaml`.
+fn check_git_url(git: &str) -> anyhow::Result<()> {
+    if git.trim().is_empty() {
+        anyhow::bail!("marketplace.git vazio");
+    }
+    if let Some((scheme, rest)) = git.split_once("://") {
+        let authority = rest.split(['/', '\\']).next().unwrap_or("");
+        if let Some((user, _)) = authority.split_once('@') {
+            // `ssh://git@host` only names the SSH user. On http(s) any userinfo is a
+            // token, and a colon on any scheme is a password.
+            let http = scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https");
+            if http || user.contains(':') {
+                anyhow::bail!(
+                    "marketplace.git com credenciais embutidas; use o credential helper do git"
+                );
+            }
+        }
+    } else if let Some((user, _)) = git.split_once('@')
+        && user.contains(':')
+    {
+        anyhow::bail!("marketplace.git com credenciais embutidas; use o credential helper do git");
     }
     Ok(())
 }
@@ -290,6 +374,17 @@ skills:
   - git: https://example.com/skills.git
     ref: v2.0.0
     path: sub/pasta
+plugins:
+  - name: code-review
+    marketplace:
+      git: https://gitlab.example.com/group/market.git
+      ref: v1.0.0
+  - name: team-review
+    profiles: [work]
+    agents: [claude]
+    marketplace:
+      git: https://gitlab.example.com/group/market.git
+      ref: v1.0.0
 "#;
 
     fn err(text: &str) -> String {
@@ -306,6 +401,9 @@ skills:
         assert!(m.mcps["built"].value.has_git_source());
         let names: Vec<_> = m.skills.iter().map(|s| s.value.name()).collect();
         assert_eq!(names, ["hello", "other", "pasta"]);
+        let plugins: Vec<_> = m.plugins.iter().map(|p| p.value.name.as_str()).collect();
+        assert_eq!(plugins, ["code-review", "team-review"]);
+        assert_eq!(m.plugins[0].value.marketplace.git_ref, "v1.0.0");
     }
 
     #[test]
@@ -371,6 +469,124 @@ skills:
     path: a/s
 "#;
         assert!(err(clash).contains("mesmo nome"));
+    }
+
+    #[test]
+    fn plugin_needs_ref_name_and_git() {
+        let no_ref = r#"version: 1
+plugins:
+  - name: p1
+    marketplace:
+      git: https://x/repo.git
+"#;
+        let msg = err(no_ref);
+        assert!(msg.contains("linha"), "{msg}");
+        assert!(msg.contains("ref"), "{msg}");
+
+        let empty_ref = "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: https://x/r.git, ref: ''}\n";
+        assert!(err(empty_ref).contains("exige ref"));
+
+        let no_name = "version: 1\nplugins:\n  - marketplace: {git: https://x/r.git, ref: v1}\n";
+        assert!(err(no_name).contains("name"), "{no_name}");
+
+        let no_git = "version: 1\nplugins:\n  - name: p1\n    marketplace: {ref: v1}\n";
+        assert!(err(no_git).contains("git"), "{no_git}");
+    }
+
+    #[test]
+    fn plugin_errors_carry_line_and_reason() {
+        let dup = r#"version: 1
+plugins:
+  - name: p1
+    marketplace: {git: https://x/r.git, ref: v1}
+  - name: p1
+    marketplace: {git: https://x/other.git, ref: v1}
+"#;
+        let msg = err(dup);
+        assert!(msg.contains("linha 5"), "{msg}");
+        assert!(msg.contains("repetido"), "{msg}");
+
+        let profiles = r#"version: 1
+profiles: [work]
+plugins:
+  - name: p1
+    profiles: [home]
+    marketplace: {git: https://x/r.git, ref: v1}
+"#;
+        let msg = err(profiles);
+        assert!(msg.contains("linha 4") && msg.contains("home"), "{msg}");
+
+        let agent = r#"version: 1
+plugins:
+  - name: p1
+    agents: [vim]
+    marketplace: {git: https://x/r.git, ref: v1}
+"#;
+        assert!(err(agent).contains("vim"));
+
+        let unknown = r#"version: 1
+plugins:
+  - name: p1
+    marketplace: {git: https://x/r.git, ref: v1, extra: 1}
+"#;
+        let msg = err(unknown);
+        assert!(msg.contains("extra"), "{msg}");
+        assert!(msg.contains("line 4"), "{msg}");
+    }
+
+    #[test]
+    fn one_ref_per_marketplace() {
+        let same = r#"version: 1
+plugins:
+  - name: p1
+    marketplace: {git: https://x/r.git, ref: v1}
+  - name: p2
+    marketplace: {git: https://x/r, ref: v1}
+"#;
+        assert!(Manifest::parse(same).is_ok());
+
+        let mixed = r#"version: 1
+plugins:
+  - name: p1
+    marketplace: {git: https://x/r.git, ref: v1}
+  - name: p2
+    marketplace: {git: https://x/r.git, ref: v2}
+"#;
+        let msg = err(mixed);
+        assert!(msg.contains("linha 5"), "{msg}");
+        assert!(msg.contains("ref"), "{msg}");
+    }
+
+    #[test]
+    fn plugin_rejects_credentials_and_short_sha() {
+        let creds = r#"version: 1
+plugins:
+  - name: p1
+    marketplace: {git: "https://user:token@gitlab.example.com/g/r.git", ref: v1}
+"#;
+        assert!(err(creds).contains("credenciais"));
+
+        let token = "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: 'https://glpat-abc@gitlab.example.com/g/r.git', ref: v1}\n";
+        assert!(err(token).contains("credenciais"));
+
+        let ssh = "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: 'ssh://git@gitlab.example.com/g/r.git', ref: v1}\n";
+        assert!(Manifest::parse(ssh).is_ok(), "{}", err(ssh));
+
+        let scp_token = "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: 'user:token@gitlab.example.com:g/r.git', ref: v1}\n";
+        assert!(err(scp_token).contains("credenciais"));
+
+        let scp = "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: 'git@gitlab.example.com:g/r.git', ref: v1}\n";
+        assert!(Manifest::parse(scp).is_ok(), "{}", err(scp));
+
+        let short = "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: https://x/r.git, ref: abc1234}\n";
+        assert!(err(short).contains("SHA abreviado"));
+    }
+
+    #[test]
+    fn plugin_accepts_local_marketplace() {
+        let local =
+            "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: ./market, ref: v1}\n";
+        assert!(Manifest::parse(local).is_ok());
     }
 
     #[test]

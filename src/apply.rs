@@ -148,6 +148,7 @@ fn apply_agent(
         .iter()
         .copied()
         .chain(&plan.skills)
+        .chain(&plan.plugins)
         .any(|c| c.action.writes());
     if writes && let Err(e) = plan.adapter.backup(&dirs.backups()) {
         eprintln!("{}: backup falhou, agente pulado: {e:#}", plan.agent);
@@ -172,6 +173,17 @@ fn apply_agent(
             Ok(()) => outcome.wrote |= change.action.writes(),
             Err(e) => {
                 eprintln!("{}: skill {} falhou: {e:#}", plan.agent, change.name);
+                outcome.failures += 1;
+            }
+        }
+        save(state, dirs);
+    }
+    for change in &plan.plugins {
+        let managed = managed_plugins(plan, state);
+        match apply_plugin(plan, change, state, &managed) {
+            Ok(()) => outcome.wrote |= change.action.writes(),
+            Err(e) => {
+                eprintln!("{}: plugin {} falhou: {e:#}", plan.agent, change.name);
                 outcome.failures += 1;
             }
         }
@@ -235,6 +247,64 @@ fn apply_skill(
         (Action::Keep, Some(src)) => {
             let mode = entries.skills.get(name).and_then(|t| t.mode);
             entries.skills.insert(name.clone(), src.tracked(mode));
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Plugin ids agsync tracks for this agent right now, including ones added earlier in
+/// the same apply.
+fn managed_plugins(plan: &AgentPlan, state: &State) -> BTreeSet<String> {
+    state
+        .agent(plan.agent)
+        .plugins
+        .values()
+        .filter_map(|t| t.plugin.clone())
+        .collect()
+}
+
+fn apply_plugin(
+    plan: &AgentPlan,
+    change: &Change,
+    state: &mut State,
+    managed: &BTreeSet<String>,
+) -> anyhow::Result<()> {
+    let name = &change.name;
+    let desired = plan.desired.plugins.get(name);
+    let entries = state.agent_mut(plan.agent);
+    match (change.action, desired) {
+        (Action::Add | Action::Update | Action::Overwrite | Action::Adopt, Some(spec)) => {
+            let previous = entries.plugins.get(name).and_then(|t| t.plugin.clone());
+            let id = plan.adapter.install_plugin(spec, managed)?;
+            if let Some(old) = previous.filter(|old| old != &id) {
+                plan.adapter.uninstall_plugin(&old)?;
+            }
+            entries.plugins.insert(name.clone(), spec.tracked(id));
+            report(plan, change, "plugin");
+        }
+        (Action::Remove, _) => {
+            if let Some(id) = entries.plugins.get(name).and_then(|t| t.plugin.clone()) {
+                plan.adapter.uninstall_plugin(&id)?;
+            }
+            entries.plugins.remove(name);
+            report(plan, change, "plugin");
+        }
+        (Action::Forget, _) => {
+            entries.plugins.remove(name);
+        }
+        (Action::Keep, Some(spec)) => {
+            let id = match entries.plugins.get(name).and_then(|t| t.plugin.clone()) {
+                Some(id) => Some(id),
+                None => plan
+                    .plugin_ids
+                    .get(name)
+                    .cloned()
+                    .or(plan.adapter.plugin_installed(spec)?),
+            };
+            if let Some(id) = id {
+                entries.plugins.insert(name.clone(), spec.tracked(id));
+            }
         }
         _ => {}
     }
