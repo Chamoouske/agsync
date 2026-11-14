@@ -30,10 +30,14 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     let failed_builds = run_builds(&report);
     let mut failures = failed_builds.len();
     let mut mcp_written = false;
+    let mut hints = Vec::new();
     for plan in &report.agents {
         let outcome = apply_agent(plan, &report.dirs, &mut state, &failed_builds);
         failures += outcome.failures;
         mcp_written |= outcome.mcp_written;
+        if outcome.wrote {
+            hints.extend(plan.adapter.reload_hint());
+        }
     }
     state.commit = Some(report.snapshot.commit.clone());
     state.save(&report.dirs.state_file())?;
@@ -47,6 +51,9 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     }
     if mcp_written {
         println!("Mudancas de MCP so valem apos reiniciar o agente.");
+    }
+    for hint in hints {
+        println!("{hint}");
     }
     if failures > 0 {
         anyhow::bail!("{failures} item(ns) falharam; os demais foram aplicados");
@@ -111,6 +118,8 @@ fn confirmed(yes: bool) -> anyhow::Result<bool> {
 struct Outcome {
     failures: usize,
     mcp_written: bool,
+    /// Some MCP or skill of this agent was written.
+    wrote: bool,
 }
 
 fn apply_agent(
@@ -137,7 +146,10 @@ fn apply_agent(
     }
     for change in mcps {
         match apply_mcp(plan, change, state) {
-            Ok(()) => outcome.mcp_written |= change.action.writes(),
+            Ok(()) => {
+                outcome.mcp_written |= change.action.writes();
+                outcome.wrote |= change.action.writes();
+            }
             Err(e) => {
                 eprintln!("{}: mcp {} falhou: {e:#}", plan.agent, change.name);
                 outcome.failures += 1;
@@ -146,9 +158,12 @@ fn apply_agent(
         save(state, dirs);
     }
     for change in &plan.skills {
-        if let Err(e) = apply_skill(plan, change, dirs, state) {
-            eprintln!("{}: skill {} falhou: {e:#}", plan.agent, change.name);
-            outcome.failures += 1;
+        match apply_skill(plan, change, dirs, state) {
+            Ok(()) => outcome.wrote |= change.action.writes(),
+            Err(e) => {
+                eprintln!("{}: skill {} falhou: {e:#}", plan.agent, change.name);
+                outcome.failures += 1;
+            }
         }
         save(state, dirs);
     }

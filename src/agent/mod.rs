@@ -33,6 +33,10 @@ pub trait Adapter {
     fn write_skill(&self, name: &str, cached: &Path, backups: &Path) -> anyhow::Result<LinkMode>;
     /// Removes one skill folder or link.
     fn remove_skill(&self, name: &str, backups: &Path) -> anyhow::Result<()>;
+    /// What to tell the user after agsync changed this agent, beyond restarting it.
+    fn reload_hint(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Adapter for `agent`, or the reason it is skipped on this machine.

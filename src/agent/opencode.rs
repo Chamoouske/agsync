@@ -166,6 +166,13 @@ impl Adapter for OpenCode {
     fn remove_skill(&self, name: &str, backups: &Path) -> anyhow::Result<()> {
         link::clear(&self.dir.join("skills").join(name), backups)
     }
+
+    fn reload_hint(&self) -> Option<&'static str> {
+        Some(
+            "opencode: rode `opencode reload` ou reinicie o servico \
+             (`opencode service restart`) para carregar as mudancas",
+        )
+    }
 }
 
 fn config_dir() -> anyhow::Result<PathBuf> {

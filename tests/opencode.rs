@@ -153,7 +153,8 @@ fn opencode_end_to_end() {
         "{status}"
     );
 
-    env.ok(&["apply", "--yes"]);
+    let applied = env.ok(&["apply", "--yes"]);
+    assert!(applied.contains("rode `opencode reload`"), "{applied}");
     let s = servers(&env);
     assert_eq!(s["plain"]["command"], serde_json::json!(["node", "v1.js"]));
     assert_eq!(s["envref"]["environment"]["TOKEN"], "{env:E2E_OC_ENV}");
