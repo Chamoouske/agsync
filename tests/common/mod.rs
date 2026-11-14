@@ -148,6 +148,31 @@ impl Env {
     }
 }
 
+/// Builds the fake agent example and copies it as each name into a fresh bin dir.
+pub fn fake_bin(env: &Env, names: &[&str]) -> PathBuf {
+    let built = Command::new(env!("CARGO"))
+        .args(["build", "--quiet", "--example", "fake_agent"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .status()
+        .unwrap();
+    assert!(built.success(), "cargo build --example fake_agent falhou");
+    let deps = std::env::current_exe().unwrap();
+    let exe = deps
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples")
+        .join(format!("fake_agent{}", std::env::consts::EXE_SUFFIX));
+    let bin = env.root.path().join("fakebin");
+    std::fs::create_dir_all(&bin).unwrap();
+    for name in names {
+        let dest = bin.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+        std::fs::copy(&exe, dest).unwrap();
+    }
+    bin
+}
+
 /// `PATH` with `first`, then the folders holding the tools found among `tools`.
 /// Keeps every other agent CLI out of reach of the run.
 pub fn path_with(tools: &[&str], first: &[PathBuf]) -> OsString {

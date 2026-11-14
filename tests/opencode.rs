@@ -9,7 +9,7 @@ mod common;
 use std::path::PathBuf;
 use std::process::Command;
 
-use common::{Env, Untouched, count, git, path_with, text};
+use common::{Env, Untouched, count, fake_bin, git, path_with, text};
 use jsonc_parser::ParseOptions;
 use jsonc_parser::cst::CstRootNode;
 use serde_json::Value;
@@ -72,6 +72,9 @@ mcps:
     headers: {{Authorization: "Bearer ${{E2E_OC_ENV}}", X-Key: "${{E2E_OC_FILE}}"}}
 {extra}skills:
   - path: skills/hello
+  - path: skills/hello
+    name: hello-codex
+    agents: [codex]
 "#
     )
 }
@@ -104,7 +107,8 @@ fn opencode_end_to_end() {
     }
     let real = Untouched::snapshot(&real_files());
     let mut env = Env::new();
-    env.path = Some(path_with(&["git", "opencode", "sh"], &[]));
+    let bin = fake_bin(&env, &["codex"]);
+    env.path = Some(path_with(&["git", "opencode", "sh"], &[bin]));
     env.vars = vec![("E2E_OC_ENV".to_string(), ENV_SECRET.to_string())];
     env.forbidden = vec![ENV_SECRET.to_string(), FILE_SECRET.to_string()];
 
@@ -141,6 +145,9 @@ fn opencode_end_to_end() {
     assert!(status.contains("opencode:\n"), "{status}");
     assert!(status.contains("mcp plain: adicionar"), "{status}");
     assert!(status.contains("skill hello: adicionar"), "{status}");
+    let warning = "aviso: skill hello-codex fica visivel no opencode mesmo fora de agents: ele le as skills de codex";
+    assert_eq!(status.matches(warning).count(), 1, "{status}");
+    assert_eq!(env.ok(&["diff"]).matches(warning).count(), 1);
     assert!(
         status.contains("claude: claude nao encontrado no PATH"),
         "{status}"

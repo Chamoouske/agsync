@@ -16,6 +16,7 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     report.print_changes();
     report.print_builds();
     report.print_skipped();
+    report.print_warnings();
     let mut state = report.state.clone();
     let pending = report.has_pending();
 

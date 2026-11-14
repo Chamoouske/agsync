@@ -6,10 +6,7 @@
 
 mod common;
 
-use std::path::PathBuf;
-use std::process::Command;
-
-use common::{Env, count, git, path_with};
+use common::{Env, count, fake_bin, git, path_with};
 use serde_json::{Value, json};
 
 const ENV_SECRET: &str = "fake-env-secret-333";
@@ -42,31 +39,6 @@ mcp_servers:
     command: manual-tool
     args: [mine]
 ";
-
-/// Builds the fake agent example and copies it as each name into a fresh bin dir.
-fn fake_bin(env: &Env, names: &[&str]) -> PathBuf {
-    let built = Command::new(env!("CARGO"))
-        .args(["build", "--quiet", "--example", "fake_agent"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .status()
-        .unwrap();
-    assert!(built.success(), "cargo build --example fake_agent falhou");
-    let deps = std::env::current_exe().unwrap();
-    let exe = deps
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("examples")
-        .join(format!("fake_agent{}", std::env::consts::EXE_SUFFIX));
-    let bin = env.root.path().join("fakebin");
-    std::fs::create_dir_all(&bin).unwrap();
-    for name in names {
-        let dest = bin.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-        std::fs::copy(&exe, dest).unwrap();
-    }
-    bin
-}
 
 /// Calls the fake `agent` received, oldest first.
 fn calls(env: &Env, agent: &str) -> Vec<Vec<String>> {

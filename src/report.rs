@@ -4,7 +4,7 @@ use crate::agent::{self, Adapter};
 use crate::desired::{Context, Desired};
 use crate::git::{self, Snapshot};
 use crate::machine::Machine;
-use crate::manifest::{AGENTS, Manifest};
+use crate::manifest::{AGENTS, Manifest, selected};
 use crate::paths::Dirs;
 use crate::plan::{Action, Change, plan};
 use crate::resolved::Resolved;
@@ -51,6 +51,8 @@ pub struct Report {
     /// Builds apply runs before writing: new or changed commits, not built yet.
     pub builds: Vec<BuildJob>,
     pub skipped: Vec<String>,
+    /// Things apply does not change but the user should know.
+    pub warnings: Vec<String>,
 }
 
 impl Report {
@@ -111,6 +113,8 @@ impl Report {
             });
         }
         let builds = needed_builds(&sources, &agents);
+        let detected: Vec<&str> = agents.iter().map(|plan| plan.agent).collect();
+        let warnings = opencode_sees(&manifest, &machine.profiles, &detected);
         Ok(Report {
             dirs,
             machine,
@@ -120,6 +124,7 @@ impl Report {
             agents,
             builds,
             skipped,
+            warnings,
         })
     }
 
@@ -175,6 +180,12 @@ impl Report {
         }
     }
 
+    pub fn print_warnings(&self) {
+        for line in &self.warnings {
+            println!("aviso: {line}");
+        }
+    }
+
     pub fn print_skipped(&self) {
         if self.skipped.is_empty() {
             return;
@@ -197,6 +208,7 @@ pub fn status() -> anyhow::Result<()> {
     report.print_changes();
     report.print_builds();
     report.print_skipped();
+    report.print_warnings();
     report.snapshot.close()
 }
 
@@ -205,7 +217,38 @@ pub fn diff() -> anyhow::Result<()> {
     let report = Report::build(false)?;
     report.print_changes();
     report.print_builds();
+    report.print_warnings();
     report.snapshot.close()
+}
+
+/// One line per selected skill that leaves `opencode` out of `agents:` but goes to Claude
+/// Code or Codex: OpenCode also reads `~/.claude/skills` and `~/.agents/skills`, so it
+/// sees the skill anyway. Empty when OpenCode is not detected.
+fn opencode_sees(manifest: &Manifest, active: &[String], detected: &[&str]) -> Vec<String> {
+    if !detected.contains(&"opencode") {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    for skill in &manifest.skills {
+        let skill = &skill.value;
+        let Some(agents) = &skill.agents else {
+            continue;
+        };
+        let lists = |agent: &str| agents.iter().any(|a| a == agent);
+        let shared: Vec<&str> = ["claude", "codex"]
+            .into_iter()
+            .filter(|agent| lists(agent) && detected.contains(agent))
+            .collect();
+        if lists("opencode") || shared.is_empty() || !selected(&skill.profiles, active) {
+            continue;
+        }
+        lines.push(format!(
+            "skill {} fica visivel no opencode mesmo fora de agents: ele le as skills de {}",
+            skill.name(),
+            shared.join(" e ")
+        ));
+    }
+    lines
 }
 
 /// Builds of MCPs that some agent will use (anything but a conflict).
@@ -224,4 +267,45 @@ fn needed_builds(sources: &Resolved, agents: &[AgentPlan]) -> Vec<BuildJob> {
         .filter(|(name, _)| used(name))
         .filter_map(|(_, src)| src.job.clone())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const YAML: &str = r#"
+version: 1
+profiles: [work]
+skills:
+  - path: skills/all
+  - path: skills/claude-only
+    agents: [claude]
+  - path: skills/codex-and-opencode
+    agents: [codex, opencode]
+  - path: skills/both
+    agents: [claude, codex]
+  - path: skills/hermes-only
+    agents: [hermes]
+  - path: skills/inactive
+    profiles: [work]
+    agents: [codex]
+"#;
+
+    #[test]
+    fn warns_once_per_skill_opencode_sees_anyway() {
+        let m = Manifest::parse(YAML).unwrap();
+        let all = ["claude", "codex", "opencode"];
+        let lines = opencode_sees(&m, &[], &all);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].starts_with("skill claude-only fica visivel no opencode"));
+        assert!(lines[0].ends_with("de claude"));
+        assert!(lines[1].ends_with("de claude e codex"));
+
+        let work = opencode_sees(&m, &["work".to_string()], &all);
+        assert!(work.iter().any(|l| l.contains("skill inactive")));
+        assert!(opencode_sees(&m, &[], &["claude", "codex"]).is_empty());
+        let only_codex = opencode_sees(&m, &[], &["codex", "opencode"]);
+        assert_eq!(only_codex.len(), 1);
+        assert!(only_codex[0].contains("skill both"));
+    }
 }
