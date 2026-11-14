@@ -321,6 +321,7 @@ impl Adapter for Claude {
             .marketplaces()?
             .into_iter()
             .filter(|m| m.matches(&spec.git))
+            .filter(|m| spec.is_local() || m.git_ref.as_deref() == Some(spec.git_ref.as_str()))
             .map(|m| m.name)
             .collect();
         let ids = self.user_plugins()?;
