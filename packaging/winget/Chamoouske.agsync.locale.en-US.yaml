@@ -1,0 +1,10 @@
+PackageIdentifier: Chamoouske.agsync
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: Chamoouske
+PackageName: agsync
+PackageUrl: https://github.com/Chamoouske/agsync
+License: Proprietary
+ShortDescription: Sync MCP servers and skills from a git config repo into coding agents
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
