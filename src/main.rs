@@ -59,6 +59,15 @@ enum Cmd {
         #[command(subcommand)]
         command: ScheduleCmd,
     },
+    /// Remove every agsync entry from the agents, the schedule, the shell hook and the state.
+    Uninstall {
+        /// Uninstall without asking; required when stdin is not a terminal.
+        #[arg(long)]
+        yes: bool,
+        /// Also delete the config and data dirs: secrets.env, cache and every backup.
+        #[arg(long)]
+        purge: bool,
+    },
     /// Manage secrets.env, the local file for `${VAR}` values.
     Secret {
         #[command(subcommand)]
@@ -135,6 +144,7 @@ fn main() {
             ScheduleCmd::Remove => agsync::schedule::remove().map(|()| true),
             ScheduleCmd::Status => agsync::schedule::status(),
         },
+        Cmd::Uninstall { yes, purge } => agsync::uninstall::uninstall(yes, purge),
         Cmd::Secret {
             command: SecretCmd::Set { name },
         } => agsync::cmd::secret_set(&name).map(|()| true),

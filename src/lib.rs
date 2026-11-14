@@ -35,5 +35,6 @@ pub mod shell;
 pub mod source;
 pub mod state;
 pub mod tmp;
+pub mod uninstall;
 pub mod watch;
 pub mod which;
