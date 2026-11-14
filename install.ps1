@@ -37,7 +37,10 @@ try {
     if (-not $expected) {
         throw "SHA256SUMS nao tem $asset"
     }
-    $actual = (Get-FileHash -Algorithm SHA256 -Path $download).Hash.ToLower()
+    $bytes = [System.IO.File]::ReadAllBytes($download)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $actual = ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLower()
+    $sha.Dispose()
     if ($actual -ne $expected) {
         throw "SHA256 de $asset nao confere: esperado $expected, veio $actual"
     }
