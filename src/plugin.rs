@@ -129,9 +129,14 @@ fn with_host(host: &str, path: &str) -> String {
 }
 
 fn local_key(path: &str) -> String {
-    match std::fs::canonicalize(path) {
-        Ok(path) => path.to_string_lossy().to_lowercase(),
-        Err(_) => path.replace('\\', "/").to_lowercase(),
+    let key = match std::fs::canonicalize(path) {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(_) => path.replace('\\', "/"),
+    };
+    if cfg!(windows) {
+        key.to_lowercase()
+    } else {
+        key
     }
 }
 
