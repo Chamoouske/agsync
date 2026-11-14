@@ -11,9 +11,10 @@ pub enum Action {
     Update,
     /// Tracked but changed or deleted by hand: manual drift, overwritten with backup.
     Overwrite,
-    /// Manual entry with the same name, taken over because of `--adopt`.
+    /// Manual entry with the same name, kind and agent, replaced by the config repo
+    /// definition and tracked from now on, because of `--adopt`.
     Adopt,
-    /// Manual entry with the same name; left alone.
+    /// Manual entry with the same name, kind and agent; left alone without `--adopt`.
     Conflict,
     /// Tracked, no longer desired, still present: removed.
     Remove,
@@ -37,8 +38,10 @@ impl Action {
             Action::Add => "adicionar",
             Action::Update => "atualizar",
             Action::Overwrite => "desvio manual, sobrescrever com backup",
-            Action::Adopt => "assumir entrada manual (--adopt)",
-            Action::Conflict => "conflito com entrada manual, nao sera alterada (use --adopt)",
+            Action::Adopt => "assumir instalacao manual, substituida pelo agsync.yaml (--adopt)",
+            Action::Conflict => {
+                "conflito com instalacao manual de mesmo nome, nao sera alterada (use --adopt para substituir)"
+            }
             Action::Remove => "remover (saiu do agsync.yaml)",
             Action::Forget => "esquecer (ja removida fora do agsync)",
             Action::Keep => "sem mudanca",

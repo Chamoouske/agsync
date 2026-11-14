@@ -262,6 +262,40 @@ impl Report {
         }
     }
 
+    /// Lists manual installs that match a declared item by name, kind and agent: the
+    /// ones apply replaces (`--adopt`) or the ones it leaves alone.
+    pub fn print_manual(&self) {
+        let pick = |action: Action| -> Vec<String> {
+            self.agents
+                .iter()
+                .flat_map(|plan| {
+                    plan.visible()
+                        .filter(move |(_, c)| c.action == action)
+                        .map(move |(kind, c)| {
+                            let detail = plan.detail(kind, c);
+                            format!("  {}: {kind} {}{detail}", plan.agent, c.name)
+                        })
+                })
+                .collect()
+        };
+        let replaced = pick(Action::Adopt);
+        if !replaced.is_empty() {
+            println!();
+            println!(
+                "!!! INSTALACOES MANUAIS que serao substituidas pela definicao do agsync.yaml:"
+            );
+            replaced.iter().for_each(|line| println!("{line}"));
+        }
+        let kept = pick(Action::Conflict);
+        if !kept.is_empty() {
+            println!();
+            println!(
+                "instalacoes manuais com o mesmo nome no agsync.yaml (`agsync apply --adopt` substitui):"
+            );
+            kept.iter().for_each(|line| println!("{line}"));
+        }
+    }
+
     pub fn print_warnings(&self) {
         for line in &self.warnings {
             println!("aviso: {line}");
@@ -288,6 +322,7 @@ pub fn status() -> anyhow::Result<()> {
     println!("commit aplicado: {applied}");
     println!("commit remoto:   {}", report.remote);
     report.print_changes();
+    report.print_manual();
     report.print_builds();
     report.print_skipped();
     report.print_warnings();
@@ -298,6 +333,7 @@ pub fn status() -> anyhow::Result<()> {
 pub fn diff() -> anyhow::Result<()> {
     let report = Report::build(false)?;
     report.print_changes();
+    report.print_manual();
     report.print_builds();
     report.print_warnings();
     report.snapshot.close()

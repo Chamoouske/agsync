@@ -32,6 +32,7 @@ pub fn write(
     after_clean: AfterClean,
 ) -> anyhow::Result<bool> {
     report.print_changes();
+    report.print_manual();
     report.print_builds();
     report.print_skipped();
     report.print_warnings();
