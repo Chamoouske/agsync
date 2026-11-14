@@ -46,9 +46,26 @@ try {
     }
 
     New-Item -ItemType Directory -Force -Path $bin | Out-Null
-    Copy-Item -Force -Path $download -Destination (Join-Path $bin 'agsync.exe')
+    $exe = Join-Path $bin 'agsync.exe'
+    Copy-Item -Force -Path $download -Destination $exe
 } finally {
     Remove-Item -Recurse -Force -Path $tmp
+}
+
+$guide = 'https://github.com/Chamoouske/agsync#microsoft-defender-e-smartscreen'
+$blocked = $false
+if (Test-Path $exe) {
+    try {
+        & $exe --version | Out-Null
+        $blocked = $LASTEXITCODE -ne 0
+    } catch {
+        $blocked = $true
+    }
+} else {
+    $blocked = $true
+}
+if ($blocked) {
+    throw "$exe sumiu ou nao executa depois da instalacao; provavelmente o Microsoft Defender ou o SmartScreen bloqueou o binario. Veja $guide"
 }
 
 $pathVar = 'Path'
