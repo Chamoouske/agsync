@@ -81,6 +81,10 @@ impl Adapter for Hermes {
             .collect())
     }
 
+    fn mcp_spec(&self, name: &str) -> anyhow::Result<Option<McpSpec>> {
+        Ok(self.servers()?.get(name).and_then(to_spec))
+    }
+
     fn skills_dir(&self) -> PathBuf {
         self.home.join("skills")
     }
@@ -287,5 +291,23 @@ mod tests {
                 None => std::env::remove_var("HERMES_HOME"),
             }
         }
+    }
+
+    #[test]
+    fn reads_one_entry() {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let hermes = Hermes::at("hermes-not-called".into(), tmp.path().into());
+        let file = "mcp_servers:
+  1mcp:
+    command: 1mcp
+    args: [proxy]
+";
+        std::fs::write(tmp.path().join("config.yaml"), file).unwrap();
+        let legacy = McpSpec::Stdio {
+            command: "1mcp".into(),
+            args: vec!["proxy".into()],
+            env: BTreeMap::new(),
+        };
+        assert_eq!(hermes.mcp_spec("1mcp").unwrap(), Some(legacy));
     }
 }

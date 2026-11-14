@@ -116,6 +116,10 @@ impl Adapter for OpenCode {
             .collect())
     }
 
+    fn mcp_spec(&self, name: &str) -> anyhow::Result<Option<McpSpec>> {
+        Ok(self.servers()?.get(name).and_then(to_spec))
+    }
+
     fn skills_dir(&self) -> PathBuf {
         self.dir.join("skills")
     }
@@ -387,5 +391,20 @@ mod tests {
         assert_eq!(oc.mcps().unwrap().keys().collect::<Vec<_>>(), ["keep"]);
 
         assert_eq!(without_entry(&text, "keep", false).unwrap(), None);
+    }
+
+    #[test]
+    fn reads_one_local_entry() {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let opencode = OpenCode::at(PathBuf::from("opencode-not-called"), tmp.path().into());
+        let file = r#"{"mcp": {"1mcp": {"type": "local", "command": ["1mcp", "proxy"]}}}"#;
+        std::fs::write(tmp.path().join("opencode.json"), file).unwrap();
+        let legacy = McpSpec::Stdio {
+            command: "1mcp".into(),
+            args: vec!["proxy".into()],
+            env: BTreeMap::new(),
+        };
+        assert_eq!(opencode.mcp_spec("1mcp").unwrap(), Some(legacy));
+        assert_eq!(opencode.mcp_spec("other").unwrap(), None);
     }
 }

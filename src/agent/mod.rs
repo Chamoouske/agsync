@@ -23,6 +23,9 @@ pub trait Adapter {
     }
     /// Current MCP entries: name to content hash.
     fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>>;
+    /// One MCP entry in the neutral form; `None` when absent or of a shape agsync does
+    /// not write.
+    fn mcp_spec(&self, name: &str) -> anyhow::Result<Option<McpSpec>>;
     /// Folder where agsync places this agent's skills.
     fn skills_dir(&self) -> PathBuf;
     /// Every folder the agent loads skills from. By default only [`Adapter::skills_dir`].

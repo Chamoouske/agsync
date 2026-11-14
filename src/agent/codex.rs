@@ -117,6 +117,10 @@ impl Adapter for Codex {
             .collect())
     }
 
+    fn mcp_spec(&self, name: &str) -> anyhow::Result<Option<McpSpec>> {
+        Ok(self.servers()?.get(name).and_then(to_spec))
+    }
+
     fn skills_dir(&self) -> PathBuf {
         self.skills_dir.clone()
     }
@@ -480,5 +484,28 @@ env = { MODE = "x" }
         );
         let value: toml::Value = toml::from_str(&text).unwrap();
         assert_eq!(to_spec(&value), Some(mixed));
+    }
+
+    #[test]
+    fn reads_one_entry_with_an_empty_env_table() {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let codex = Codex::at(
+            "codex-not-called".into(),
+            tmp.path().into(),
+            tmp.path().into(),
+        );
+        let file = "[mcp_servers.1mcp]
+command = \"1mcp\"
+args = [\"proxy\"]
+
+[mcp_servers.1mcp.env]
+";
+        std::fs::write(tmp.path().join("config.toml"), file).unwrap();
+        let legacy = McpSpec::Stdio {
+            command: "1mcp".into(),
+            args: vec!["proxy".into()],
+            env: BTreeMap::new(),
+        };
+        assert_eq!(codex.mcp_spec("1mcp").unwrap(), Some(legacy));
     }
 }

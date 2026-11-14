@@ -82,6 +82,19 @@ impl Adapter for Claude {
             .collect())
     }
 
+    fn mcp_spec(&self, name: &str) -> anyhow::Result<Option<McpSpec>> {
+        let Some(mut value) = self.servers()?.remove(name) else {
+            return Ok(None);
+        };
+        if let Some(entry) = value.as_object_mut()
+            && !entry.contains_key("type")
+            && entry.contains_key("command")
+        {
+            entry.insert("type".into(), "stdio".into());
+        }
+        Ok(serde_json::from_value(value).ok())
+    }
+
     fn skills_dir(&self) -> PathBuf {
         self.skills_dir.clone()
     }
@@ -152,5 +165,20 @@ mod tests {
         let backups = dir.join("backups");
         claude.backup(&backups).unwrap();
         assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn reads_one_entry_without_type_as_stdio() {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let claude = Claude::at(PathBuf::from("claude-not-called"), tmp.path());
+        assert_eq!(claude.mcp_spec("1mcp").unwrap(), None);
+        let file = r#"{"mcpServers":{"1mcp":{"command":"1mcp","args":["proxy"]}}}"#;
+        std::fs::write(tmp.path().join(".claude.json"), file).unwrap();
+        let legacy = McpSpec::Stdio {
+            command: "1mcp".into(),
+            args: vec!["proxy".into()],
+            env: BTreeMap::new(),
+        };
+        assert_eq!(claude.mcp_spec("1mcp").unwrap(), Some(legacy));
     }
 }
