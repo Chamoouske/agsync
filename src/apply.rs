@@ -330,3 +330,5 @@ fn save(state: &State, dirs: &Dirs) {
     }
 }
 
+#[cfg(test)]
+mod tests;
