@@ -48,6 +48,10 @@ impl Dirs {
     pub fn logs(&self) -> PathBuf {
         self.data.join("logs")
     }
+
+    pub fn lock_file(&self) -> PathBuf {
+        self.data.join("agsync.lock")
+    }
 }
 
 /// User home: `USERPROFILE` on Windows, `HOME` elsewhere.

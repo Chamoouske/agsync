@@ -5,6 +5,7 @@ use std::io::{BufRead, IsTerminal, Write};
 
 use crate::agent::link;
 use crate::cleanup;
+use crate::lock::Lock;
 use crate::paths::Dirs;
 use crate::plan::{Action, Change};
 use crate::report::{AgentPlan, Report};
@@ -12,6 +13,7 @@ use crate::state::State;
 
 /// Shows the diff, asks for confirmation, applies, updates state, deletes the snapshot.
 pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
+    let _lock = Lock::wait(&Dirs::from_env()?)?;
     let report = Report::build(adopt)?;
     report.print_changes();
     report.print_builds();

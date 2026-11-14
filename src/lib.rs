@@ -11,6 +11,7 @@ pub mod desired;
 pub mod doctor;
 pub mod git;
 pub mod hash;
+pub mod lock;
 pub mod machine;
 pub mod manifest;
 pub mod mcp;
