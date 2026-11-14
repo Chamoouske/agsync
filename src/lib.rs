@@ -4,6 +4,7 @@
 pub mod agent;
 pub mod apply;
 pub mod atomic;
+pub mod background;
 pub mod check;
 pub mod checklog;
 pub mod cleanup;
@@ -13,6 +14,7 @@ pub mod desired;
 pub mod doctor;
 pub mod git;
 pub mod hash;
+pub mod hook;
 pub mod lock;
 pub mod machine;
 pub mod manifest;

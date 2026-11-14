@@ -38,6 +38,8 @@ enum Cmd {
     },
     /// Read the remote only; record pending changes and notify once. Run by the scheduler.
     Check,
+    /// Print the pending line; no network. Started by the shell profile.
+    Hook,
     /// Check git, the config repo, agents, requires, secrets and source repos.
     Doctor,
     /// Manage secrets.env, the local file for `${VAR}` values.
@@ -58,8 +60,19 @@ enum SecretCmd {
     List,
 }
 
+impl Cmd {
+    /// Commands that print the pending line on stderr first: all but the ones that
+    /// handle `pending.json` themselves.
+    fn warns_pending(&self) -> bool {
+        !matches!(self, Cmd::Hook | Cmd::Check | Cmd::Apply { .. })
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
+    if cli.command.warns_pending() {
+        agsync::hook::warn_pending();
+    }
     let result = match cli.command {
         Cmd::Init {
             url,
@@ -70,6 +83,7 @@ fn main() {
         Cmd::Diff => agsync::report::diff().map(|()| true),
         Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt).map(|()| true),
         Cmd::Check => agsync::check::check().map(|()| true),
+        Cmd::Hook => agsync::hook::hook().map(|()| true),
         Cmd::Doctor => agsync::doctor::doctor(),
         Cmd::Secret {
             command: SecretCmd::Set { name },

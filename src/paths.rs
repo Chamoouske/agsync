@@ -64,6 +64,10 @@ impl Dirs {
     pub fn last_check_file(&self) -> PathBuf {
         self.data.join("last-check")
     }
+
+    pub fn hook_started_file(&self) -> PathBuf {
+        self.data.join("hook-started-check")
+    }
 }
 
 /// User home: `USERPROFILE` on Windows, `HOME` elsewhere.
