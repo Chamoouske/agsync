@@ -46,6 +46,20 @@ impl MarketplaceEntry {
             _ => false,
         }
     }
+
+    /// Source for `claude plugin marketplace add` that brings this entry back.
+    fn source_arg(&self) -> Option<String> {
+        let base = match self.source.as_str() {
+            "github" => self.repo.clone(),
+            "git" => self.url.clone(),
+            "directory" => self.path.clone(),
+            _ => None,
+        }?;
+        match &self.git_ref {
+            Some(git_ref) => Some(format!("{base}#{git_ref}")),
+            None => Some(base),
+        }
+    }
 }
 
 /// One line of `claude plugin list --json`.
@@ -54,6 +68,17 @@ struct InstalledPlugin {
     id: String,
     #[serde(default)]
     scope: Option<String>,
+}
+
+impl InstalledPlugin {
+    /// Plugin name without the `@marketplace` part.
+    fn name(&self) -> &str {
+        self.id.split('@').next().unwrap_or(&self.id)
+    }
+
+    fn scope(&self) -> &str {
+        self.scope.as_deref().unwrap_or("user")
+    }
 }
 
 /// Claude Code user-level config.
@@ -153,14 +178,13 @@ impl Claude {
             .find(|m| m.matches(&spec.git)))
     }
 
-    /// Adds the marketplace and returns the name declared in its catalog.
-    fn add_marketplace(&self, spec: &PluginSpec) -> anyhow::Result<String> {
-        let source = spec.describe();
+    /// Adds the marketplace at `source` and returns the name declared in its catalog.
+    fn add_marketplace(&self, source: &str) -> anyhow::Result<String> {
         let cmd = self.command(&[
             "plugin",
             "marketplace",
             "add",
-            &source,
+            source,
             "--scope",
             "user",
             "--json",
@@ -175,7 +199,8 @@ impl Claude {
     }
 
     /// A marketplace cannot change ref in place: remove it and add it again.
-    /// Refuses when the marketplace also holds plugins agsync does not manage.
+    /// Refuses when the marketplace also holds plugins agsync does not manage. If the
+    /// new ref cannot be added, the old ref and its plugins are put back.
     fn switch_marketplace(
         &self,
         found: &MarketplaceEntry,
@@ -183,25 +208,21 @@ impl Claude {
         managed: &BTreeSet<String>,
     ) -> anyhow::Result<String> {
         let suffix = format!("@{}", found.name);
-        let installed: Vec<String> = self
+        let installed: Vec<InstalledPlugin> = self
             .user_plugins()?
             .into_iter()
-            .map(|p| p.id)
-            .filter(|id| id.ends_with(&suffix))
+            .filter(|p| p.id.ends_with(&suffix))
             .collect();
-        let untracked: Vec<&String> = installed
+        let untracked: Vec<&str> = installed
             .iter()
-            .filter(|id| !managed.contains(*id))
+            .filter(|p| !managed.contains(&p.id))
+            .map(|p| p.id.as_str())
             .collect();
         if !untracked.is_empty() {
             anyhow::bail!(
                 "marketplace '{}' tambem tem plugins fora do agsync ({}); troque a ref a mao",
                 found.name,
-                untracked
-                    .iter()
-                    .map(|id| id.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                untracked.join(", ")
             );
         }
         self.run(
@@ -216,18 +237,15 @@ impl Claude {
             ],
             true,
         )?;
-        let name = self.add_marketplace(spec)?;
-        let own = format!("{}@", spec.name);
-        let mut failed = Vec::new();
-        for id in &installed {
-            if let Err(e) = self.run(
-                &["plugin", "install", id, "--scope", "user", "--json", "-y"],
-                true,
-            ) && !id.starts_with(&own)
-            {
-                failed.push(format!("{id}: {e:#}"));
-            }
-        }
+        let name = match self.add_marketplace(&spec.describe()) {
+            Ok(name) => name,
+            Err(e) => return Err(self.restore_marketplace(found, &installed, e)),
+        };
+        let others: Vec<InstalledPlugin> = installed
+            .into_iter()
+            .filter(|p| p.name() != spec.name)
+            .collect();
+        let failed = self.reinstall(&others, &name);
         if !failed.is_empty() {
             anyhow::bail!(
                 "marketplace '{}' trocado, mas estes plugins nao voltaram: {}",
@@ -236,6 +254,64 @@ impl Claude {
             );
         }
         Ok(name)
+    }
+
+    /// Adds `found` back at its old ref after the new one failed, with its plugins.
+    /// Returns the error that says what came back and what did not.
+    fn restore_marketplace(
+        &self,
+        found: &MarketplaceEntry,
+        installed: &[InstalledPlugin],
+        cause: anyhow::Error,
+    ) -> anyhow::Error {
+        let ids: Vec<&str> = installed.iter().map(|p| p.id.as_str()).collect();
+        let lost = ids.join(", ");
+        let Some(source) = found.source_arg() else {
+            return anyhow::anyhow!(
+                "ref nova falhou ({cause:#}); marketplace '{}' removido e sem origem para readicionar; plugins fora: {lost}",
+                found.name
+            );
+        };
+        let name = match self.add_marketplace(&source) {
+            Ok(name) => name,
+            Err(e) => {
+                return anyhow::anyhow!(
+                    "ref nova falhou ({cause:#}); marketplace '{}' removido e nao voltou ({e:#}); plugins fora: {lost}",
+                    found.name
+                );
+            }
+        };
+        let failed = self.reinstall(installed, &name);
+        if failed.is_empty() {
+            return anyhow::anyhow!(
+                "ref nova falhou ({cause:#}); marketplace '{name}' voltou para a ref antiga com seus plugins"
+            );
+        }
+        anyhow::anyhow!(
+            "ref nova falhou ({cause:#}); marketplace '{name}' voltou para a ref antiga, mas estes plugins nao voltaram: {}",
+            failed.join("; ")
+        )
+    }
+
+    /// Installs each plugin from `marketplace` in its own scope; returns the failures.
+    fn reinstall(&self, plugins: &[InstalledPlugin], marketplace: &str) -> Vec<String> {
+        let mut failed = Vec::new();
+        for plugin in plugins {
+            let id = format!("{}@{marketplace}", plugin.name());
+            let args = [
+                "plugin",
+                "install",
+                &id,
+                "--scope",
+                plugin.scope(),
+                "--json",
+                "-y",
+            ];
+            if let Err(e) = self.run(&args, true) {
+                failed.push(format!("{id}: {e:#}"));
+            }
+        }
+        failed
     }
 
     /// Marketplace name for `spec`, adding it or moving it to the requested ref.
@@ -250,7 +326,7 @@ impl Claude {
                 Ok(found.name)
             }
             Some(found) => self.switch_marketplace(&found, spec, managed),
-            None => self.add_marketplace(spec),
+            None => self.add_marketplace(&spec.describe()),
         }
     }
 }
