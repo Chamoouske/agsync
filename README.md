@@ -252,7 +252,7 @@ So o que foi instalado pelo agsync e registrado no `state.json`. Plugin instalad
 Limitacoes:
 
 - Marketplace em pasta local: o Claude le a pasta direto e nao aceita `ref` nela. A `ref` continua na identidade do plugin, entao troca-la ainda gera um `update`.
-- Trocar a `ref` de um marketplace remoto: o Claude nao troca a `ref` no lugar, e remover o marketplace desinstala todos os plugins dele. O agsync remove e readiciona o marketplace e reinstala o que gerencia. Se houver plugin fora do agsync no mesmo marketplace, ele recusa e pede a troca manual.
+- Trocar a `ref` de um marketplace remoto: o Claude nao troca a `ref` no lugar, e remover o marketplace desinstala todos os plugins dele. O agsync remove e readiciona o marketplace e reinstala o que gerencia, cada plugin no seu escopo. Se a `ref` nova nao puder ser adicionada, ele readiciona a `ref` antiga com os plugins e diz o que nao voltou. Se houver plugin fora do agsync no mesmo marketplace, ele recusa e pede a troca manual.
 - O marketplace em si fica registrado no Claude; o agsync nao remove marketplaces no `uninstall`.
 
 ## WSL
