@@ -312,6 +312,10 @@ fn check_git_url(git: &str) -> anyhow::Result<()> {
                 );
             }
         }
+    } else if let Some((user, _)) = git.split_once('@')
+        && user.contains(':')
+    {
+        anyhow::bail!("marketplace.git com credenciais embutidas; use o credential helper do git");
     }
     Ok(())
 }
@@ -567,6 +571,12 @@ plugins:
 
         let ssh = "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: 'ssh://git@gitlab.example.com/g/r.git', ref: v1}\n";
         assert!(Manifest::parse(ssh).is_ok(), "{}", err(ssh));
+
+        let scp_token = "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: 'user:token@gitlab.example.com:g/r.git', ref: v1}\n";
+        assert!(err(scp_token).contains("credenciais"));
+
+        let scp = "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: 'git@gitlab.example.com:g/r.git', ref: v1}\n";
+        assert!(Manifest::parse(scp).is_ok(), "{}", err(scp));
 
         let short = "version: 1\nplugins:\n  - name: p1\n    marketplace: {git: https://x/r.git, ref: abc1234}\n";
         assert!(err(short).contains("SHA abreviado"));
