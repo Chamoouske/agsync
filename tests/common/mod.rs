@@ -185,10 +185,7 @@ pub fn fake_bin(env: &Env, names: &[&str]) -> PathBuf {
         .status()
         .unwrap();
     assert!(built.success(), "cargo build --example fake_agent falhou");
-    let deps = std::env::current_exe().unwrap();
-    let exe = deps
-        .parent()
-        .unwrap()
+    let exe = Path::new(env!("CARGO_BIN_EXE_agsync"))
         .parent()
         .unwrap()
         .join("examples")
