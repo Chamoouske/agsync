@@ -70,6 +70,12 @@ impl Dirs {
     }
 }
 
+/// Absolute path of the running agsync binary.
+pub fn current_exe() -> anyhow::Result<PathBuf> {
+    let exe = std::env::current_exe().context("caminho do agsync")?;
+    Ok(std::path::absolute(&exe).unwrap_or(exe))
+}
+
 /// User home: `USERPROFILE` on Windows, `HOME` elsewhere.
 pub fn home() -> anyhow::Result<PathBuf> {
     let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };

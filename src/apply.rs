@@ -1,7 +1,7 @@
 //! `agsync apply`: write planned changes, one item at a time.
 
 use std::collections::BTreeSet;
-use std::io::{BufRead, IsTerminal, Write};
+use std::io::IsTerminal;
 
 use crate::agent::link;
 use crate::cleanup;
@@ -116,14 +116,7 @@ fn confirmed(yes: bool) -> anyhow::Result<bool> {
     if !std::io::stdin().is_terminal() {
         anyhow::bail!("sem TTY: nada aplicado; rode `agsync apply --yes`");
     }
-    print!("Aplicar estas mudancas? [s/N] ");
-    std::io::stdout().flush()?;
-    let mut answer = String::new();
-    std::io::stdin().lock().read_line(&mut answer)?;
-    let ok = matches!(
-        answer.trim().to_lowercase().as_str(),
-        "s" | "sim" | "y" | "yes"
-    );
+    let ok = crate::prompt::yes_no("Aplicar estas mudancas?")?;
     if !ok {
         println!("cancelado");
     }

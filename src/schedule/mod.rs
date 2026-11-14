@@ -6,8 +6,6 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
-
 use crate::machine::Machine;
 use crate::paths::Dirs;
 
@@ -66,7 +64,7 @@ fn system() -> Box<dyn Scheduler> {
 
 /// `agsync schedule install`: every `check_interval_minutes` of `machine.toml` (default 15).
 pub fn install() -> anyhow::Result<()> {
-    let exe = current_exe()?;
+    let exe = crate::paths::current_exe()?;
     let minutes = interval()?;
     let notes = for_this_machine().install(&exe, minutes)?;
     println!("agendado: `{} check` a cada {minutes} min", exe.display());
@@ -88,7 +86,7 @@ pub fn remove() -> anyhow::Result<()> {
 
 /// `agsync schedule status`. True when the check runs this binary.
 pub fn status() -> anyhow::Result<bool> {
-    let exe = current_exe()?;
+    let exe = crate::paths::current_exe()?;
     let found = for_this_machine().status(&exe)?;
     println!("{}", describe(&found, &exe));
     Ok(found == Status::Current)
@@ -104,11 +102,6 @@ pub fn describe(status: &Status, exe: &Path) -> String {
             exe.display()
         ),
     }
-}
-
-pub fn current_exe() -> anyhow::Result<PathBuf> {
-    let exe = std::env::current_exe().context("caminho do agsync")?;
-    Ok(std::path::absolute(&exe).unwrap_or(exe))
 }
 
 fn interval() -> anyhow::Result<u32> {

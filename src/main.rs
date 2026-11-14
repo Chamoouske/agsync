@@ -39,7 +39,10 @@ enum Cmd {
     /// Read the remote only; record pending changes and notify once. Run by the scheduler.
     Check,
     /// Print the pending line; no network. Started by the shell profile.
-    Hook,
+    Hook {
+        #[command(subcommand)]
+        command: Option<HookCmd>,
+    },
     /// Check git, the config repo, agents, requires, secrets and source repos.
     Doctor,
     /// Register, remove or show the periodic `agsync check`.
@@ -52,6 +55,18 @@ enum Cmd {
         #[command(subcommand)]
         command: SecretCmd,
     },
+}
+
+#[derive(Subcommand)]
+enum HookCmd {
+    /// Add `agsync hook` to the profile of each shell on this machine.
+    Install {
+        /// Install without asking; required when stdin is not a terminal.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Remove the agsync block from every shell profile.
+    Remove,
 }
 
 #[derive(Subcommand)]
@@ -79,7 +94,7 @@ impl Cmd {
     /// Commands that print the pending line on stderr first: all but the ones that
     /// handle `pending.json` themselves.
     fn warns_pending(&self) -> bool {
-        !matches!(self, Cmd::Hook | Cmd::Check | Cmd::Apply { .. })
+        !matches!(self, Cmd::Hook { .. } | Cmd::Check | Cmd::Apply { .. })
     }
 }
 
@@ -98,7 +113,11 @@ fn main() {
         Cmd::Diff => agsync::report::diff().map(|()| true),
         Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt).map(|()| true),
         Cmd::Check => agsync::check::check().map(|()| true),
-        Cmd::Hook => agsync::hook::hook().map(|()| true),
+        Cmd::Hook { command } => match command {
+            None => agsync::hook::hook().map(|()| true),
+            Some(HookCmd::Install { yes }) => agsync::shell::install(yes),
+            Some(HookCmd::Remove) => agsync::shell::remove().map(|()| true),
+        },
         Cmd::Doctor => agsync::doctor::doctor(),
         Cmd::Schedule { command } => match command {
             ScheduleCmd::Install => agsync::schedule::install().map(|()| true),

@@ -71,6 +71,8 @@ impl Env {
             .env("AGSYNC_DATA_DIR", &self.data)
             .env("AGSYNC_TEST_NOTIFY_LOG", self.notify_log())
             .env("AGSYNC_TEST_SCHEDULE_FILE", self.schedule_file())
+            .env("AGSYNC_DOCUMENTS_DIR", self.home.join("Documents"))
+            .env_remove("ZDOTDIR")
             .env("TEMP", &self.tmp)
             .env("TMP", &self.tmp)
             .env("TMPDIR", &self.tmp)

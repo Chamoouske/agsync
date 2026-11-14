@@ -153,7 +153,7 @@ fn check_backups(checks: &mut Checks, dirs: &Dirs) {
 }
 
 fn check_schedule(checks: &mut Checks) {
-    let exe = match schedule::current_exe() {
+    let exe = match crate::paths::current_exe() {
         Ok(exe) => exe,
         Err(e) => return checks.problem(&format!("{e:#}")),
     };
