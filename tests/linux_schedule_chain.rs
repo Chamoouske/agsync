@@ -1,7 +1,8 @@
 //! The Linux scheduler picks systemd, else cron, else nothing, as `PATH` allows.
 //!
 //! Alone in its test binary because it changes the process `PATH`. The schedule has a
-//! test name and runs a probe script, as in `linux_schedule.rs`.
+//! test name and runs a probe script, as in `linux_schedule.rs`; the cron script lands
+//! in the test's data dir.
 
 #![cfg(target_os = "linux")]
 
@@ -17,6 +18,7 @@ use common::Env;
 
 struct Cleanup {
     name: String,
+    data: PathBuf,
     path: std::ffi::OsString,
     table: Option<Vec<u8>>,
 }
@@ -25,7 +27,7 @@ impl Drop for Cleanup {
     fn drop(&mut self) {
         set_path(&self.path);
         let _ = Systemd::runtime(&self.name).unwrap().remove();
-        let _ = Cron::new(&self.name).remove();
+        let _ = Cron::new(&self.name, &self.data).remove();
         restore_crontab(self.table.as_deref());
     }
 }
@@ -61,6 +63,19 @@ fn probe(dir: &Path) -> PathBuf {
     script
 }
 
+/// Real dirs with spaces, parentheses and a quote, more than 2000 characters joined.
+fn long_dirs(root: &Path) -> Vec<PathBuf> {
+    let dirs: Vec<PathBuf> = (0..60)
+        .map(|i| root.join(format!("Program Files (x86) it's tool {i}")))
+        .collect();
+    for dir in &dirs {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let joined = std::env::join_paths(&dirs).unwrap();
+    assert!(joined.len() > 2000, "{}", joined.len());
+    dirs
+}
+
 fn timer_enabled(systemctl: &Path, name: &str) -> bool {
     Command::new(systemctl)
         .args(["--user", "is-enabled", &format!("{name}.timer")])
@@ -89,10 +104,14 @@ fn systemd_then_cron_then_nothing() {
     let name = format!("agsync-test-chain-{}-{nanos}", std::process::id());
     let cleanup = Cleanup {
         name: name.clone(),
+        data: env.data.clone(),
         path: std::env::var_os("PATH").unwrap(),
         table: read_crontab(),
     };
-    unsafe { std::env::set_var(schedule::TEST_NAME_VAR, &name) };
+    unsafe {
+        std::env::set_var(schedule::TEST_NAME_VAR, &name);
+        std::env::set_var("AGSYNC_DATA_DIR", &env.data);
+    }
     let exe = probe(env.root.path());
 
     schedule::for_this_machine().install(&exe, 15).unwrap();
@@ -104,12 +123,16 @@ fn systemd_then_cron_then_nothing() {
     let cron_only = env.root.path().join("cron-only");
     std::fs::create_dir_all(&cron_only).unwrap();
     std::os::unix::fs::symlink(&crontab, cron_only.join("crontab")).unwrap();
-    set_path(cron_only.as_os_str());
+    let mut cron_path = vec![cron_only.clone()];
+    cron_path.extend(long_dirs(&env.root.path().join("long")));
+    set_path(&std::env::join_paths(cron_path).unwrap());
     schedule::for_this_machine().install(&exe, 15).unwrap();
     assert!(cron_has(&crontab, &name), "cron without systemctl");
+    assert!(env.data.join(format!("{name}.sh")).is_file());
     assert!(!timer_enabled(&systemctl, &name));
     assert!(schedule::for_this_machine().remove().unwrap());
     assert!(!cron_has(&crontab, &name));
+    assert!(!env.data.join(format!("{name}.sh")).exists());
 
     let empty = env.root.path().join("empty");
     std::fs::create_dir_all(&empty).unwrap();

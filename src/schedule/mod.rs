@@ -11,7 +11,7 @@ use crate::host::Host;
 use crate::machine::Machine;
 use crate::paths::Dirs;
 
-#[cfg(any(not(windows), test))]
+#[cfg(not(windows))]
 pub mod cron;
 mod file;
 #[cfg(not(windows))]
@@ -75,9 +75,16 @@ fn system() -> Box<dyn Scheduler> {
 fn system() -> Box<dyn Scheduler> {
     use cron::Cron;
     use systemd::Systemd;
+    let data = Dirs::from_env().map(|dirs| dirs.data);
     let linux = match test_name() {
-        Some(name) => linux::Linux::detect(Systemd::runtime(&name), Cron::new(&name)),
-        None => linux::Linux::detect(Systemd::for_user(NAME), Cron::new(NAME)),
+        Some(name) => {
+            let cron = data.map(|dir| Cron::new(&name, &dir));
+            linux::Linux::detect(Systemd::runtime(&name), cron)
+        }
+        None => {
+            let cron = data.map(|dir| Cron::new(NAME, &dir));
+            linux::Linux::detect(Systemd::for_user(NAME), cron)
+        }
     };
     Box::new(linux)
 }

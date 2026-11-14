@@ -14,6 +14,7 @@
 mod common;
 
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -43,7 +44,6 @@ fn probe(dir: &Path) -> PathBuf {
         ),
     )
     .unwrap();
-    use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     script
 }
@@ -168,7 +168,7 @@ fn cron_line_is_added_and_removed_next_to_other_lines() {
     let env = Env::new();
     let guard = CrontabGuard(crontab_list());
     let name = unique_name("cron");
-    let cron = Cron::new(&name);
+    let cron = Cron::new(&name, &env.data);
     let exe = probe(env.root.path());
     let foreign = format!("0 3 * * * true # {}", unique_name("foreign"));
     let mut start = guard.0.clone().unwrap_or_default();
@@ -177,22 +177,44 @@ fn cron_line_is_added_and_removed_next_to_other_lines() {
     crontab_write(Some(&start));
 
     let notes = cron.install(&exe, 15).unwrap();
-    assert!(notes[0].contains("na linha do crontab"), "{notes:?}");
+    assert!(notes[0].contains("no script do cron"), "{notes:?}");
     let table = crontab_list().unwrap();
     let line = table
         .lines()
         .find(|l| l.ends_with(&format!("# {name}")))
         .unwrap_or_else(|| panic!("no agsync line:\n{table}"));
-    assert!(line.starts_with("*/15 * * * * env 'PATH="), "{line}");
-    assert!(
-        line.contains(&format!("'{}' check", exe.display())),
-        "{line}"
+    let script = env.data.join(format!("{name}.sh"));
+    assert_eq!(
+        line,
+        format!(
+            "*/15 * * * * '{}' >/dev/null 2>&1 # {name}",
+            script.display()
+        )
     );
     assert!(table.starts_with(&start), "{table}");
+    let mode = std::fs::metadata(&script).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
     assert_eq!(cron.status(&exe).unwrap(), Status::Current);
+    let other = cron.status(Path::new("/old/agsync")).unwrap();
+    assert!(matches!(other, Status::Other(_)), "{other:?}");
+
+    let ran = Command::new(&script).env_clear().output().unwrap();
+    assert!(ran.status.success(), "{}", text(&ran));
+    let probe_out = std::fs::read_to_string(env.root.path().join("ran")).unwrap();
+    let mut lines = probe_out.lines();
+    assert_eq!(lines.next(), Some("check"));
+    let host = agsync::host::current();
+    let script_path = lines.next().unwrap();
+    for dir in std::env::split_paths(script_path) {
+        assert!(
+            !host.foreign(&dir),
+            "Windows dir in the script PATH: {script_path}"
+        );
+    }
 
     assert!(cron.remove().unwrap());
     assert_eq!(crontab_list().unwrap(), start);
+    assert!(!script.exists());
     assert!(!cron.remove().unwrap());
     assert_eq!(cron.status(&exe).unwrap(), Status::Missing);
 

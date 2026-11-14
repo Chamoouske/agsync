@@ -14,11 +14,11 @@ pub struct Linux {
 
 impl Linux {
     /// Picks what works on this machine; `systemd` and `cron` name the same schedule.
-    pub fn detect(systemd: anyhow::Result<Systemd>, cron: Cron) -> Linux {
+    pub fn detect(systemd: anyhow::Result<Systemd>, cron: anyhow::Result<Cron>) -> Linux {
         Linux {
             systemd: systemd.ok(),
             systemd_works: Systemd::works(),
-            cron: Cron::available().then_some(cron),
+            cron: cron.ok().filter(|_| Cron::available()),
         }
     }
 }
