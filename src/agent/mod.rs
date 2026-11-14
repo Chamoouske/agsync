@@ -60,6 +60,11 @@ pub trait Adapter {
     fn plugin_installed(&self, _spec: &PluginSpec) -> anyhow::Result<Option<String>> {
         Ok(None)
     }
+    /// Id of the only plugin installed under `name` from any source, if exactly one is.
+    /// Lets a manual install of the same plugin from another marketplace be replaced.
+    fn plugin_named(&self, _name: &str) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
     /// True if the agent still has the plugin recorded under `id`.
     fn plugin_present(&self, _id: &str) -> anyhow::Result<bool> {
         Ok(false)

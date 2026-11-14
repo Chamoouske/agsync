@@ -40,7 +40,8 @@ enum Cmd {
         /// Apply without asking; required when stdin is not a terminal.
         #[arg(long)]
         yes: bool,
-        /// Take over manual entries whose name collides with the config repo.
+        /// Replace manual installs (MCP, skill, plugin) whose name, kind and agent match an
+        /// item of the config repo with its definition, and track them from now on.
         #[arg(long)]
         adopt: bool,
     },

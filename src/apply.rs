@@ -57,6 +57,7 @@ pub fn write(
     after_clean: AfterClean,
 ) -> anyhow::Result<bool> {
     report.print_changes();
+    report.print_manual();
     report.print_builds();
     report.print_skipped();
     report.print_warnings();
@@ -300,7 +301,10 @@ fn apply_plugin(
     let entries = state.agent_mut(plan.agent);
     match (change.action, desired) {
         (Action::Add | Action::Update | Action::Overwrite | Action::Adopt, Some(spec)) => {
-            let previous = entries.plugins.get(name).and_then(|t| t.plugin.clone());
+            let previous = match entries.plugins.get(name) {
+                Some(tracked) => tracked.plugin.clone(),
+                None => plan.plugin_ids.get(name).cloned(),
+            };
             let id = plan.adapter.install_plugin(spec, managed)?;
             if let Some(old) = previous.filter(|old| old != &id) {
                 plan.adapter.uninstall_plugin(&old)?;
@@ -350,3 +354,6 @@ fn save(state: &State, dirs: &Dirs) {
         eprintln!("gravar state.json falhou: {e:#}");
     }
 }
+
+#[cfg(test)]
+mod tests;

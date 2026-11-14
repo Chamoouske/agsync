@@ -435,6 +435,19 @@ impl Adapter for Claude {
             }))
     }
 
+    fn plugin_named(&self, name: &str) -> anyhow::Result<Option<String>> {
+        let ids: Vec<String> = self
+            .user_plugins()?
+            .into_iter()
+            .filter(|p| p.name() == name)
+            .map(|p| p.id)
+            .collect();
+        Ok(match ids.as_slice() {
+            [id] => Some(id.clone()),
+            _ => None,
+        })
+    }
+
     fn plugin_present(&self, id: &str) -> anyhow::Result<bool> {
         Ok(self.user_plugins()?.iter().any(|p| p.id == id))
     }

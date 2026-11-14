@@ -161,3 +161,55 @@ fn moving_source_branch_is_news_at_the_same_commit() {
     env.ok(&["check"]);
     assert_eq!(env.notifications().len(), 1);
 }
+
+#[test]
+fn manual_install_with_the_same_name_is_reported_then_replaced_with_adopt() {
+    let env = setup();
+    let manual = "[mcp_servers.echo]\ncommand = \"node\"\nargs = [\"manual.js\"]\n\n[mcp_servers.other]\ncommand = \"node\"\nargs = [\"mine.js\"]\n";
+    let config = env.codex_dir.join("config.toml");
+    std::fs::write(&config, manual).unwrap();
+
+    env.ok(&["check"]);
+    let pending = env.pending().expect("manual match is news");
+    assert_eq!(pending["agents"]["codex"]["conflicts"][0], "mcp echo");
+    assert!(env.notifications()[0].contains("`agsync apply --adopt` substitui"));
+
+    let diff = env.ok(&["diff"]);
+    assert!(
+        diff.contains("mcp echo: conflito com instalacao manual"),
+        "{diff}"
+    );
+    assert!(
+        diff.contains("(`agsync apply --adopt` substitui):\n  codex: mcp echo"),
+        "{diff}"
+    );
+    assert!(!diff.contains("mcp other"), "{diff}");
+
+    let kept = env.ok(&["apply", "--yes"]);
+    assert!(
+        !kept.contains("INSTALACOES MANUAIS que serao substituidas"),
+        "{kept}"
+    );
+    assert!(
+        std::fs::read_to_string(&config)
+            .unwrap()
+            .contains("manual.js")
+    );
+    assert!(!env.data.join("state.json").exists() || !env.state().contains("\"echo\""));
+
+    let adopted = env.ok(&["apply", "--yes", "--adopt"]);
+    assert!(
+        adopted.contains("INSTALACOES MANUAIS que serao substituidas pela definicao do agsync.yaml:\n  codex: mcp echo"),
+        "{adopted}"
+    );
+    let text = std::fs::read_to_string(&config).unwrap();
+    assert!(
+        text.contains("v1.js") && !text.contains("manual.js"),
+        "{text}"
+    );
+    assert!(text.contains("mine.js"), "{text}");
+    assert!(env.state().contains("\"echo\""));
+    assert!(!env.state().contains("\"other\""));
+    assert!(env.pending().is_none());
+    assert!(env.ok(&["diff"]).contains("codex:\n  nada a mudar"));
+}

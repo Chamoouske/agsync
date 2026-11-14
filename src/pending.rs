@@ -56,11 +56,9 @@ pub struct Build {
 }
 
 impl Pending {
-    /// What apply would change, or `None` when nothing is applicable.
+    /// What apply would change and the manual installs `--adopt` would replace, or
+    /// `None` when there is neither.
     pub fn changes(report: &Report, checked_at: String) -> Option<Pending> {
-        if !report.has_pending() {
-            return None;
-        }
         let mut agents = BTreeMap::new();
         for plan in &report.agents {
             let mut summary = Summary::default();
@@ -77,6 +75,9 @@ impl Pending {
             if summary != Summary::default() {
                 agents.insert(plan.agent.to_string(), summary);
             }
+        }
+        if !report.has_pending() && agents.is_empty() {
+            return None;
         }
         let builds = report
             .builds
@@ -142,11 +143,20 @@ impl Pending {
         }
     }
 
+    /// Manual installs with the same name, kind and agent as a declared item.
+    pub fn manual(&self) -> usize {
+        match &self.found {
+            Found::Changes { agents, .. } => agents.values().map(|s| s.conflicts.len()).sum(),
+            Found::Invalid { .. } => 0,
+        }
+    }
+
     /// Short text for the notification.
     pub fn message(&self) -> String {
         match &self.found {
             Found::Changes { .. } => {
-                format!("{}; rode `agsync apply`", changes_text(self.count()))
+                let (what, hint) = self.news();
+                format!("{what}; {hint}")
             }
             Found::Invalid { .. } => format!(
                 "agsync.yaml invalido no commit {}; veja `agsync status`",
@@ -158,12 +168,26 @@ impl Pending {
     /// One line for the shell hook and the other commands.
     pub fn line(&self) -> String {
         match &self.found {
-            Found::Changes { .. } => format!(
-                "agsync: {} ({}); rode `agsync apply`",
-                changes_text(self.count()),
-                self.short()
-            ),
+            Found::Changes { .. } => {
+                let (what, hint) = self.news();
+                format!("agsync: {what} ({}); {hint}", self.short())
+            }
             Found::Invalid { .. } => format!("agsync: {}", self.message()),
+        }
+    }
+
+    /// What is pending and the command that applies it.
+    fn news(&self) -> (String, String) {
+        let changes = changes_text(self.count());
+        let manual = manual_text(self.manual());
+        let apply = "rode `agsync apply`".to_string();
+        match (self.count(), self.manual()) {
+            (_, 0) => (changes, apply),
+            (0, _) => (manual, "`agsync apply --adopt` substitui".to_string()),
+            _ => (
+                format!("{changes} e {manual}"),
+                format!("{apply} (`--adopt` substitui as manuais)"),
+            ),
         }
     }
 
@@ -177,6 +201,14 @@ fn changes_text(count: usize) -> String {
         "1 mudanca pendente".to_string()
     } else {
         format!("{count} mudancas pendentes")
+    }
+}
+
+fn manual_text(count: usize) -> String {
+    if count == 1 {
+        "1 instalacao manual com o mesmo nome no agsync.yaml".to_string()
+    } else {
+        format!("{count} instalacoes manuais com o mesmo nome no agsync.yaml")
     }
 }
 
@@ -231,6 +263,32 @@ mod tests {
             "agsync: agsync.yaml invalido no commit abcdef1; veja `agsync status`"
         );
         assert_eq!(bad.count(), 0);
+    }
+
+    #[test]
+    fn manual_installs_are_counted_apart_with_the_adopt_hint() {
+        let mut only_manual = changes(0, 0);
+        let Found::Changes { agents, .. } = &mut only_manual.found else {
+            unreachable!()
+        };
+        let claude = agents.get_mut("claude").unwrap();
+        claude.conflicts = vec!["mcp x".into(), "skill s".into()];
+        assert_eq!(only_manual.count(), 0);
+        assert_eq!(only_manual.manual(), 2);
+        assert_eq!(
+            only_manual.line(),
+            "agsync: 2 instalacoes manuais com o mesmo nome no agsync.yaml (abcdef1); `agsync apply --adopt` substitui"
+        );
+
+        let mut both = changes(1, 0);
+        let Found::Changes { agents, .. } = &mut both.found else {
+            unreachable!()
+        };
+        agents.get_mut("claude").unwrap().conflicts = vec!["plugin p".into()];
+        assert_eq!(
+            both.message(),
+            "1 mudanca pendente e 1 instalacao manual com o mesmo nome no agsync.yaml; rode `agsync apply` (`--adopt` substitui as manuais)"
+        );
     }
 
     #[test]

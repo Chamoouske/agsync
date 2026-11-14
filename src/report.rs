@@ -13,7 +13,7 @@ use crate::plan::{Action, Change, plan};
 use crate::resolved::{Resolved, Watched};
 use crate::secret::{self, Secrets};
 use crate::source::BuildJob;
-use crate::state::{State, keys};
+use crate::state::{AgentState, State, keys};
 
 /// Plan for one agent that has an adapter on this machine.
 pub struct AgentPlan {
@@ -23,11 +23,49 @@ pub struct AgentPlan {
     pub mcps: Vec<Change>,
     pub skills: Vec<Change>,
     pub plugins: Vec<Change>,
-    /// Id the agent already uses for each desired plugin.
+    /// Id the agent already uses for each desired plugin: from the declared source, or
+    /// the manual install of the same name that `--adopt` replaces.
     pub plugin_ids: BTreeMap<String, String>,
 }
 
 impl AgentPlan {
+    /// Plans every MCP, skill and plugin of one agent. Each kind is planned against the
+    /// agent's entries of that kind only, so a homonym of another kind never matches.
+    pub fn new(
+        agent: &'static str,
+        adapter: Box<dyn Adapter>,
+        desired: Desired,
+        tracked: &AgentState,
+        adopt: bool,
+        skipped: &mut Vec<String>,
+    ) -> anyhow::Result<AgentPlan> {
+        let mut mcps = plan(
+            &desired.mcp_wants(),
+            &keys(&tracked.mcps),
+            &adapter.mcps()?,
+            adopt,
+        );
+        mcps.retain(|c| !desired.held_mcps.contains(&c.name));
+        let mut skills = plan(
+            &desired.skill_wants(),
+            &keys(&tracked.skills),
+            &adapter.skills()?,
+            adopt,
+        );
+        skills.retain(|c| !desired.held_skills.contains(&c.name));
+        let (plugins, plugin_ids) =
+            plan_plugins(adapter.as_ref(), &desired, tracked, adopt, agent, skipped)?;
+        Ok(AgentPlan {
+            agent,
+            adapter,
+            desired,
+            mcps,
+            skills,
+            plugins,
+            plugin_ids,
+        })
+    }
+
     /// Changes worth showing (everything but `Keep`).
     pub fn visible(&self) -> impl Iterator<Item = (&'static str, &Change)> {
         let mcps = self.mcps.iter().map(|c| ("mcp", c));
@@ -151,37 +189,8 @@ impl Report {
             let desired = Desired::for_agent(&ctx, agent, &|spot| adapter.keeps_ref(spot))?;
             skipped.extend(desired.skipped.iter().cloned());
             let tracked = state.agent(agent);
-            let mut mcps = plan(
-                &desired.mcp_wants(),
-                &keys(&tracked.mcps),
-                &adapter.mcps()?,
-                adopt,
-            );
-            mcps.retain(|c| !desired.held_mcps.contains(&c.name));
-            let mut skills = plan(
-                &desired.skill_wants(),
-                &keys(&tracked.skills),
-                &adapter.skills()?,
-                adopt,
-            );
-            skills.retain(|c| !desired.held_skills.contains(&c.name));
-            let (plugins, plugin_ids) = plan_plugins(
-                adapter.as_ref(),
-                &desired,
-                &tracked,
-                adopt,
-                agent,
-                &mut skipped,
-            )?;
-            agents.push(AgentPlan {
-                agent,
-                adapter,
-                desired,
-                mcps,
-                skills,
-                plugins,
-                plugin_ids,
-            });
+            let plan = AgentPlan::new(agent, adapter, desired, &tracked, adopt, &mut skipped)?;
+            agents.push(plan);
         }
         let builds = needed_builds(&sources, &agents);
         let reach: Vec<SkillReach> = agents.iter().map(SkillReach::of).collect();
@@ -257,6 +266,40 @@ impl Report {
         }
     }
 
+    /// Lists manual installs that match a declared item by name, kind and agent: the
+    /// ones apply replaces (`--adopt`) or the ones it leaves alone.
+    pub fn print_manual(&self) {
+        let pick = |action: Action| -> Vec<String> {
+            self.agents
+                .iter()
+                .flat_map(|plan| {
+                    plan.visible()
+                        .filter(move |(_, c)| c.action == action)
+                        .map(move |(kind, c)| {
+                            let detail = plan.detail(kind, c);
+                            format!("  {}: {kind} {}{detail}", plan.agent, c.name)
+                        })
+                })
+                .collect()
+        };
+        let replaced = pick(Action::Adopt);
+        if !replaced.is_empty() {
+            println!();
+            println!(
+                "!!! INSTALACOES MANUAIS que serao substituidas pela definicao do agsync.yaml:"
+            );
+            replaced.iter().for_each(|line| println!("{line}"));
+        }
+        let kept = pick(Action::Conflict);
+        if !kept.is_empty() {
+            println!();
+            println!(
+                "instalacoes manuais com o mesmo nome no agsync.yaml (`agsync apply --adopt` substitui):"
+            );
+            kept.iter().for_each(|line| println!("{line}"));
+        }
+    }
+
     pub fn print_warnings(&self) {
         for line in &self.warnings {
             println!("aviso: {line}");
@@ -283,6 +326,7 @@ pub fn status() -> anyhow::Result<()> {
     println!("commit aplicado: {applied}");
     println!("commit remoto:   {}", report.remote);
     report.print_changes();
+    report.print_manual();
     report.print_builds();
     report.print_skipped();
     report.print_warnings();
@@ -293,6 +337,7 @@ pub fn status() -> anyhow::Result<()> {
 pub fn diff() -> anyhow::Result<()> {
     let report = Report::build(false)?;
     report.print_changes();
+    report.print_manual();
     report.print_builds();
     report.print_warnings();
     report.snapshot.close()
@@ -351,7 +396,7 @@ fn seen_anyway(manifest: &Manifest, active: &[String], reach: &[SkillReach]) -> 
 fn plan_plugins(
     adapter: &dyn Adapter,
     desired: &Desired,
-    tracked: &crate::state::AgentState,
+    tracked: &AgentState,
     adopt: bool,
     agent: &str,
     skipped: &mut Vec<String>,
@@ -368,6 +413,12 @@ fn plan_plugins(
     for (name, spec) in &desired.plugins {
         if let Some(id) = adapter.plugin_installed(spec)? {
             current.insert(name.clone(), spec.hash());
+            ids.insert(name.clone(), id);
+            continue;
+        }
+        let tracked_here = tracked.plugins.contains_key(name);
+        if !tracked_here && let Some(id) = adapter.plugin_named(name)? {
+            current.insert(name.clone(), id.clone());
             ids.insert(name.clone(), id);
         }
     }
