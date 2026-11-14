@@ -28,6 +28,18 @@ impl TaskScheduler {
         let out = schtasks(&["/query", "/tn", &self.name, "/xml", "ONE"]).ok()?;
         Some(out)
     }
+
+    /// `(Command, Arguments)` of the task's action, when the task exists.
+    pub fn action(&self) -> Option<(String, String)> {
+        let xml = self.query_xml()?;
+        let command = tag(&xml, "Command").unwrap_or_default();
+        Some((command, tag(&xml, "Arguments").unwrap_or_default()))
+    }
+
+    /// Stops the running instance, if any (its child processes may survive).
+    pub fn end(&self) -> anyhow::Result<()> {
+        schtasks(&["/end", "/tn", &self.name]).map(|_| ())
+    }
 }
 
 impl Scheduler for TaskScheduler {

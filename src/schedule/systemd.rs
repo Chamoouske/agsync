@@ -142,7 +142,8 @@ fn quote(text: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-fn systemctl(args: &[&str]) -> anyhow::Result<()> {
+/// `systemctl --user <args>`; the error carries its stderr.
+pub fn systemctl(args: &[&str]) -> anyhow::Result<()> {
     let out = Command::new("systemctl")
         .arg("--user")
         .args(args)
