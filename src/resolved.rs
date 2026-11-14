@@ -90,6 +90,7 @@ impl Resolved {
                 }
             }
         }
+        let mut fetched = Fetched::default();
         for skill in &manifest.skills {
             let skill = &skill.value;
             let (Some(url), Some(git_ref), Some(path)) = (&skill.git, &skill.git_ref, &skill.path)
@@ -100,7 +101,7 @@ impl Resolved {
                 continue;
             }
             let name = skill.name();
-            match skill_source(&name, url, git_ref, path, &sources) {
+            match fetched.skill_source(&name, url, git_ref, path, &sources) {
                 Ok(found) => {
                     resolved.watch(url, git_ref, &found.sha);
                     resolved.skills.insert(name, found);
@@ -149,20 +150,62 @@ fn mcp_source(
     Ok(McpSource { sha, dir, job })
 }
 
-fn skill_source(
-    name: &str,
-    url: &str,
-    git_ref: &str,
-    path: &str,
-    sources: &Path,
-) -> Result<SkillSource, String> {
-    let sha = git::resolve(url, git_ref).map_err(|e| format!("fonte inacessivel: {e:#}"))?;
-    let checkout = source::checkout_dir(sources, name, &sha);
-    source::ensure_checkout(url, git_ref, &sha, &checkout)
-        .map_err(|e| format!("checkout falhou: {e:#}"))?;
-    let dir = checkout.join(path);
-    if !dir.join("SKILL.md").is_file() {
-        return Err(format!("'{path}' sem SKILL.md em {url} ({sha})"));
+/// Git work already done in this run, so skills from the same `git` and `ref` (as a
+/// `paths` entry gives) resolve the ref once and fetch the repo once.
+#[derive(Default)]
+struct Fetched {
+    shas: BTreeMap<(String, String), Result<String, String>>,
+    checkouts: BTreeMap<(String, String), PathBuf>,
+}
+
+impl Fetched {
+    fn skill_source(
+        &mut self,
+        name: &str,
+        url: &str,
+        git_ref: &str,
+        path: &str,
+        sources: &Path,
+    ) -> Result<SkillSource, String> {
+        let sha = self.resolve(url, git_ref)?;
+        let checkout = source::checkout_dir(sources, name, &sha);
+        self.ensure_checkout(url, git_ref, &sha, &checkout)
+            .map_err(|e| format!("checkout falhou: {e:#}"))?;
+        let dir = checkout.join(path);
+        if !dir.join("SKILL.md").is_file() {
+            return Err(format!("'{path}' sem SKILL.md em {url} ({sha})"));
+        }
+        Ok(SkillSource { sha, dir })
     }
-    Ok(SkillSource { sha, dir })
+
+    fn resolve(&mut self, url: &str, git_ref: &str) -> Result<String, String> {
+        let key = (url.to_string(), git_ref.to_string());
+        self.shas
+            .entry(key)
+            .or_insert_with(|| {
+                git::resolve(url, git_ref).map_err(|e| format!("fonte inacessivel: {e:#}"))
+            })
+            .clone()
+    }
+
+    /// Checks out `sha` into `dir`, from a checkout of the same commit made earlier in
+    /// this run when there is one, else from `url`.
+    fn ensure_checkout(
+        &mut self,
+        url: &str,
+        git_ref: &str,
+        sha: &str,
+        dir: &Path,
+    ) -> anyhow::Result<()> {
+        let key = (url.to_string(), sha.to_string());
+        match self.checkouts.get(&key) {
+            Some(sibling) => {
+                let sibling = sibling.to_string_lossy().to_string();
+                source::ensure_checkout(&sibling, sha, sha, dir)?;
+            }
+            None => source::ensure_checkout(url, git_ref, sha, dir)?,
+        }
+        self.checkouts.insert(key, dir.to_path_buf());
+        Ok(())
+    }
 }

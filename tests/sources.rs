@@ -342,3 +342,72 @@ fn git_sources_secrets_cleanup_and_doctor() {
     assert!(doctor.contains("repo de config"), "{doctor}");
     assert!(doctor.contains("inacessivel"), "{doctor}");
 }
+
+fn skill_md(name: &str, body: &str) -> String {
+    format!("---\nname: {name}\ndescription: test\n---\n{body}\n")
+}
+
+#[test]
+fn git_skill_paths_share_one_source() {
+    if claude_missing("git_skill_paths_share_one_source") {
+        return;
+    }
+    let mut env = Env::new();
+    env.path = Some(path_with(&["git", "claude", "sh"], &[]));
+    let src = Source::new(&env);
+    let sha1 = src.commit("skills/other/SKILL.md", &skill_md("other", "v1"));
+    let grouped = format!(
+        r#"version: 1
+skills:
+  - git: "{url}"
+    ref: main
+    paths:
+      - skills/remote-skill
+      - skills/other
+      - skills/missing
+"#,
+        url = src.url
+    );
+    git(&env.remote, &["init", "-q", "-b", "main"]);
+    env.push(&grouped);
+    let config_url = env.remote.to_string_lossy().to_string();
+    env.ok(&["init", &config_url, "--profile", "work"]);
+
+    let applied = env.ok(&["apply", "--yes"]);
+    assert!(
+        applied.contains("skill missing: 'skills/missing' sem SKILL.md"),
+        "{applied}"
+    );
+    for name in ["remote-skill", "other"] {
+        assert!(env.skill(name).join("SKILL.md").is_file(), "{name} missing");
+        assert!(checkout(&env, name, &sha1).is_dir(), "{name} checkout");
+    }
+    assert!(!env.skill("missing").exists());
+
+    let sha2 = src.commit("skills/other/SKILL.md", &skill_md("other", "v2"));
+    let status = env.ok(&["status"]);
+    assert!(status.contains("skill other: atualizar"), "{status}");
+    env.ok(&["apply", "--yes"]);
+    let other = std::fs::read_to_string(env.skill("other").join("SKILL.md")).unwrap();
+    assert!(other.contains("v2"), "{other}");
+    for name in ["remote-skill", "other"] {
+        assert!(checkout(&env, name, &sha2).is_dir(), "{name} checkout");
+        assert!(!checkout(&env, name, &sha1).exists(), "{name} old checkout");
+    }
+
+    let single = format!(
+        r#"version: 1
+skills:
+  - git: "{url}"
+    ref: main
+    path: skills/remote-skill
+  - git: "{url}"
+    ref: main
+    path: skills/other
+"#,
+        url = src.url
+    );
+    env.push(&single);
+    let status = env.ok(&["status"]);
+    assert!(status.contains("claude:\n  nada a mudar"), "{status}");
+}
