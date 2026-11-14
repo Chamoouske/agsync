@@ -16,6 +16,7 @@ pub mod lock;
 pub mod machine;
 pub mod manifest;
 pub mod mcp;
+pub mod notify;
 pub mod paths;
 pub mod plan;
 pub mod report;
