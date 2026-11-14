@@ -1,7 +1,7 @@
 //! Agent adapters: one per coding agent, all speaking the neutral MCP model.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::mcp::{McpSpec, RefSpot};
 use crate::state::LinkMode;
@@ -23,8 +23,16 @@ pub trait Adapter {
     }
     /// Current MCP entries: name to content hash.
     fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>>;
+    /// Folder where agsync places this agent's skills.
+    fn skills_dir(&self) -> PathBuf;
+    /// Every folder the agent loads skills from. By default only [`Adapter::skills_dir`].
+    fn skill_dirs_read(&self) -> Vec<PathBuf> {
+        vec![self.skills_dir()]
+    }
     /// Current skill folders: name to content hash.
-    fn skills(&self) -> anyhow::Result<BTreeMap<String, String>>;
+    fn skills(&self) -> anyhow::Result<BTreeMap<String, String>> {
+        link::installed(&self.skills_dir())
+    }
     /// Copies the agent config file into `dir` before changes.
     fn backup(&self, dir: &Path) -> anyhow::Result<()>;
     /// Creates or replaces one MCP entry.
@@ -32,9 +40,13 @@ pub trait Adapter {
     /// Removes one MCP entry.
     fn remove_mcp(&self, name: &str) -> anyhow::Result<()>;
     /// Places the cached skill folder under the agent's skills dir.
-    fn write_skill(&self, name: &str, cached: &Path, backups: &Path) -> anyhow::Result<LinkMode>;
+    fn write_skill(&self, name: &str, cached: &Path, backups: &Path) -> anyhow::Result<LinkMode> {
+        link::install(cached, &self.skills_dir().join(name), backups)
+    }
     /// Removes one skill folder or link.
-    fn remove_skill(&self, name: &str, backups: &Path) -> anyhow::Result<()>;
+    fn remove_skill(&self, name: &str, backups: &Path) -> anyhow::Result<()> {
+        link::clear(&self.skills_dir().join(name), backups)
+    }
     /// What to tell the user after agsync changed this agent, beyond restarting it.
     fn reload_hint(&self) -> Option<&'static str> {
         None

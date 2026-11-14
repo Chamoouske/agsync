@@ -1,10 +1,12 @@
 //! Snapshot the config repo and plan every agent: shared by status, diff and apply.
 
+use std::path::{Path, PathBuf};
+
 use crate::agent::{self, Adapter};
 use crate::desired::{Context, Desired};
 use crate::git::{self, Snapshot};
 use crate::machine::Machine;
-use crate::manifest::{AGENTS, Manifest, selected};
+use crate::manifest::{AGENTS, Manifest, selected, targets};
 use crate::paths::Dirs;
 use crate::plan::{Action, Change, plan};
 use crate::resolved::Resolved;
@@ -113,8 +115,8 @@ impl Report {
             });
         }
         let builds = needed_builds(&sources, &agents);
-        let detected: Vec<&str> = agents.iter().map(|plan| plan.agent).collect();
-        let warnings = opencode_sees(&manifest, &machine.profiles, &detected);
+        let reach: Vec<SkillReach> = agents.iter().map(SkillReach::of).collect();
+        let warnings = seen_anyway(&manifest, &machine.profiles, &reach);
         Ok(Report {
             dirs,
             machine,
@@ -221,34 +223,60 @@ pub fn diff() -> anyhow::Result<()> {
     report.snapshot.close()
 }
 
-/// One line per selected skill that leaves `opencode` out of `agents:` but goes to Claude
-/// Code or Codex: OpenCode also reads `~/.claude/skills` and `~/.agents/skills`, so it
-/// sees the skill anyway. Empty when OpenCode is not detected.
-fn opencode_sees(manifest: &Manifest, active: &[String], detected: &[&str]) -> Vec<String> {
-    if !detected.contains(&"opencode") {
-        return Vec::new();
+/// Where a detected agent writes skills and where it loads them from.
+pub struct SkillReach {
+    pub agent: &'static str,
+    pub writes: PathBuf,
+    pub reads: Vec<PathBuf>,
+}
+
+impl SkillReach {
+    pub fn of(plan: &AgentPlan) -> SkillReach {
+        SkillReach {
+            agent: plan.agent,
+            writes: plan.adapter.skills_dir(),
+            reads: plan.adapter.skill_dirs_read(),
+        }
     }
+}
+
+/// One line per selected skill and per detected agent left out of its `agents:` that
+/// loads it anyway, because it reads the skills folder of an agent that gets the skill.
+fn seen_anyway(manifest: &Manifest, active: &[String], reach: &[SkillReach]) -> Vec<String> {
     let mut lines = Vec::new();
     for skill in &manifest.skills {
         let skill = &skill.value;
-        let Some(agents) = &skill.agents else {
-            continue;
-        };
-        let lists = |agent: &str| agents.iter().any(|a| a == agent);
-        let shared: Vec<&str> = ["claude", "codex"]
-            .into_iter()
-            .filter(|agent| lists(agent) && detected.contains(agent))
-            .collect();
-        if lists("opencode") || shared.is_empty() || !selected(&skill.profiles, active) {
+        if skill.agents.is_none() || !selected(&skill.profiles, active) {
             continue;
         }
-        lines.push(format!(
-            "skill {} fica visivel no opencode mesmo fora de agents: ele le as skills de {}",
-            skill.name(),
-            shared.join(" e ")
-        ));
+        let gets = |r: &&SkillReach| targets(&skill.agents, r.agent);
+        for outsider in reach.iter().filter(|r| !gets(r)) {
+            let sources: Vec<&str> = reach
+                .iter()
+                .filter(gets)
+                .filter(|r| outsider.reads.iter().any(|dir| same_dir(dir, &r.writes)))
+                .map(|r| r.agent)
+                .collect();
+            if sources.is_empty() {
+                continue;
+            }
+            lines.push(format!(
+                "skill {} fica visivel no {} mesmo fora de agents: ele le as skills de {}",
+                skill.name(),
+                outsider.agent,
+                sources.join(" e ")
+            ));
+        }
     }
     lines
+}
+
+/// Same folder on disk when both exist, else the same path.
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 /// Builds of MCPs that some agent will use (anything but a conflict).
@@ -291,21 +319,62 @@ skills:
     agents: [codex]
 "#;
 
+    fn reach(agent: &'static str, writes: &str, reads: &[&str]) -> SkillReach {
+        let mut all = vec![PathBuf::from(writes)];
+        all.extend(reads.iter().map(PathBuf::from));
+        SkillReach {
+            agent,
+            writes: PathBuf::from(writes),
+            reads: all,
+        }
+    }
+
+    fn agents(claude_skills: &str, names: &[&str]) -> Vec<SkillReach> {
+        let all = [
+            reach("claude", claude_skills, &[]),
+            reach("codex", "/home/u/.agents/skills", &[]),
+            reach(
+                "opencode",
+                "/home/u/.config/opencode/skills",
+                &["/home/u/.claude/skills", "/home/u/.agents/skills"],
+            ),
+            reach("hermes", "/home/u/hermes/skills", &[]),
+        ];
+        all.into_iter()
+            .filter(|r| names.contains(&r.agent))
+            .collect()
+    }
+
     #[test]
     fn warns_once_per_skill_opencode_sees_anyway() {
         let m = Manifest::parse(YAML).unwrap();
-        let all = ["claude", "codex", "opencode"];
-        let lines = opencode_sees(&m, &[], &all);
+        let claude = "/home/u/.claude/skills";
+        let all = agents(claude, &["claude", "codex", "opencode", "hermes"]);
+        let lines = seen_anyway(&m, &[], &all);
         assert_eq!(lines.len(), 2, "{lines:?}");
         assert!(lines[0].starts_with("skill claude-only fica visivel no opencode"));
         assert!(lines[0].ends_with("de claude"));
         assert!(lines[1].ends_with("de claude e codex"));
 
-        let work = opencode_sees(&m, &["work".to_string()], &all);
+        let work = seen_anyway(&m, &["work".to_string()], &all);
         assert!(work.iter().any(|l| l.contains("skill inactive")));
-        assert!(opencode_sees(&m, &[], &["claude", "codex"]).is_empty());
-        let only_codex = opencode_sees(&m, &[], &["codex", "opencode"]);
+        let without_opencode = agents(claude, &["claude", "codex"]);
+        assert!(seen_anyway(&m, &[], &without_opencode).is_empty());
+        let only_codex = seen_anyway(&m, &[], &agents(claude, &["codex", "opencode"]));
         assert_eq!(only_codex.len(), 1);
         assert!(only_codex[0].contains("skill both"));
+    }
+
+    #[test]
+    fn claude_config_dir_elsewhere_is_not_seen_by_opencode() {
+        let m = Manifest::parse(YAML).unwrap();
+        let moved = agents(
+            "/work/claude-config/skills",
+            &["claude", "codex", "opencode"],
+        );
+        let lines = seen_anyway(&m, &[], &moved);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].starts_with("skill both fica visivel no opencode"));
+        assert!(lines[0].ends_with("de codex"));
     }
 }

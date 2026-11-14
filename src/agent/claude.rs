@@ -11,9 +11,8 @@ use std::process::Command;
 
 use anyhow::Context;
 
-use super::{Adapter, backup, cli, link};
+use super::{Adapter, backup, cli};
 use crate::mcp::{McpSpec, hash_value};
-use crate::state::LinkMode;
 
 /// Claude Code user-level config.
 #[derive(Debug)]
@@ -83,8 +82,8 @@ impl Adapter for Claude {
             .collect())
     }
 
-    fn skills(&self) -> anyhow::Result<BTreeMap<String, String>> {
-        link::installed(&self.skills_dir)
+    fn skills_dir(&self) -> PathBuf {
+        self.skills_dir.clone()
     }
 
     fn backup(&self, dir: &Path) -> anyhow::Result<()> {
@@ -113,14 +112,6 @@ impl Adapter for Claude {
             anyhow::bail!("mcp '{name}' continua no arquivo apos remove");
         }
         Ok(())
-    }
-
-    fn write_skill(&self, name: &str, cached: &Path, backups: &Path) -> anyhow::Result<LinkMode> {
-        link::install(cached, &self.skills_dir.join(name), backups)
-    }
-
-    fn remove_skill(&self, name: &str, backups: &Path) -> anyhow::Result<()> {
-        link::clear(&self.skills_dir.join(name), backups)
     }
 }
 

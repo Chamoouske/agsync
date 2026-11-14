@@ -9,7 +9,8 @@
 //! wins), under `mcp.servers.<name>` (v2) and `mcp.<name>` (v1, still read).
 //! Writes go through `opencode mcp add --global`, which only writes v2. OpenCode has no
 //! `mcp remove`, so removals and leftover copies of a name are cut from the JSONC text,
-//! keeping comments and formatting. Skills are folders under `<config dir>/skills`.
+//! keeping comments and formatting. Skills are folders under `<config dir>/skills`;
+//! OpenCode also loads `~/.claude/skills` and `~/.agents/skills`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -20,11 +21,10 @@ use jsonc_parser::ParseOptions;
 use jsonc_parser::cst::CstRootNode;
 use serde_json::Value;
 
-use super::{Adapter, backup, cli, link};
+use super::{Adapter, backup, cli};
 use crate::hash::hash_bytes;
 use crate::mcp::McpSpec;
 use crate::secret::{substitute, valid_name};
-use crate::state::LinkMode;
 
 const FILES: [&str; 2] = ["opencode.json", "opencode.jsonc"];
 
@@ -116,8 +116,8 @@ impl Adapter for OpenCode {
             .collect())
     }
 
-    fn skills(&self) -> anyhow::Result<BTreeMap<String, String>> {
-        link::installed(&self.dir.join("skills"))
+    fn skills_dir(&self) -> PathBuf {
+        self.dir.join("skills")
     }
 
     fn backup(&self, dir: &Path) -> anyhow::Result<()> {
@@ -154,12 +154,13 @@ impl Adapter for OpenCode {
         Ok(())
     }
 
-    fn write_skill(&self, name: &str, cached: &Path, backups: &Path) -> anyhow::Result<LinkMode> {
-        link::install(cached, &self.dir.join("skills").join(name), backups)
-    }
-
-    fn remove_skill(&self, name: &str, backups: &Path) -> anyhow::Result<()> {
-        link::clear(&self.dir.join("skills").join(name), backups)
+    fn skill_dirs_read(&self) -> Vec<PathBuf> {
+        let mut dirs = vec![self.skills_dir()];
+        if let Ok(home) = crate::paths::home() {
+            dirs.push(home.join(".claude").join("skills"));
+            dirs.push(home.join(".agents").join("skills"));
+        }
+        dirs
     }
 
     fn reload_hint(&self) -> Option<&'static str> {

@@ -16,10 +16,9 @@ use std::process::Command;
 use anyhow::Context;
 use serde_json::{Value, json};
 
-use super::{Adapter, backup, cli, link};
+use super::{Adapter, backup, cli};
 use crate::hash::hash_bytes;
 use crate::mcp::McpSpec;
-use crate::state::LinkMode;
 
 /// Hermes Agent home.
 #[derive(Debug)]
@@ -82,8 +81,8 @@ impl Adapter for Hermes {
             .collect())
     }
 
-    fn skills(&self) -> anyhow::Result<BTreeMap<String, String>> {
-        link::installed(&self.home.join("skills"))
+    fn skills_dir(&self) -> PathBuf {
+        self.home.join("skills")
     }
 
     fn backup(&self, dir: &Path) -> anyhow::Result<()> {
@@ -112,14 +111,6 @@ impl Adapter for Hermes {
             anyhow::bail!("mcp '{name}' continua em {}", self.config_file().display());
         }
         Ok(())
-    }
-
-    fn write_skill(&self, name: &str, cached: &Path, backups: &Path) -> anyhow::Result<LinkMode> {
-        link::install(cached, &self.home.join("skills").join(name), backups)
-    }
-
-    fn remove_skill(&self, name: &str, backups: &Path) -> anyhow::Result<()> {
-        link::clear(&self.home.join("skills").join(name), backups)
     }
 }
 
