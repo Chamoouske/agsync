@@ -21,6 +21,16 @@ Uma versao especifica:
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Chamoouske/agsync/main/install.ps1))) -Version 0.1.0
 ```
 
+Nao use `-ExecutionPolicy Bypass`. O `irm ... | iex` roda sem mudar a politica de execucao, e o Defender costuma marcar justamente essa linha como suspeita. Se algo der errado, veja [Microsoft Defender e SmartScreen](#microsoft-defender-e-smartscreen).
+
+Via Scoop, pelo manifest do proprio repositorio (`packaging/scoop`, que nao esta no formato de bucket, entao o Scoop instala direto pela URL):
+
+```powershell
+scoop install https://raw.githubusercontent.com/Chamoouske/agsync/main/packaging/scoop/agsync.json
+```
+
+O manifest do Winget esta em `packaging/winget`, pronto para um PR em `microsoft/winget-pkgs`. Enquanto esse PR nao for aceito, `winget install` nao encontra o agsync.
+
 Linux (x86_64, binario estatico). Instala em `~/.local/bin` e, se preciso, poe essa pasta no PATH pelo `~/.profile` e pelo `~/.bashrc`/`~/.zshrc` que existirem:
 
 ```sh
@@ -219,6 +229,30 @@ O agsync no WSL e uma instalacao Linux separada. Ele cuida das configs do home L
 - A confirmacao do `apply` lista cada build, com repo, commit e comandos, antes de rodar qualquer coisa. Leia antes de confirmar.
 - Fixe `ref` por SHA completo quando nao quiser seguir uma branch.
 - O `check` nunca aplica nada, e o `hook` nunca acessa a rede.
+
+## Microsoft Defender e SmartScreen
+
+O binario do Windows nao tem assinatura de codigo, nem metadados de versao, e chama o PowerShell por dentro. Por isso o classificador de aprendizado de maquina do Microsoft Defender pode poe o `agsync.exe` em quarentena (por exemplo, como `Trojan:Win32/Bearfoos.A!ml`) ou o SmartScreen pode avisar sobre um aplicativo desconhecido. E um falso positivo conhecido da v0.1.0, mas confira antes de liberar.
+
+1. Confira o SHA256 do arquivo contra o `SHA256SUMS` da release:
+
+```powershell
+(Get-FileHash "$env:LOCALAPPDATAgsyncingsync.exe" -Algorithm SHA256).Hash.ToLower()
+```
+
+Compare com a linha de `agsync-x86_64-pc-windows-msvc.exe` no `SHA256SUMS` da [release](https://github.com/Chamoouske/agsync/releases). Se o hash for diferente, nao use o arquivo. O `install.ps1` ja faz essa conferencia antes de copiar o binario.
+
+2. Para restaurar da quarentena: Seguranca do Windows > Protecao contra virus e ameacas > Historico de protecao, escolha a deteccao do `agsync.exe` e use Acoes > Restaurar. Depois rode o instalador de novo se o arquivo tiver sumido.
+
+3. Se o Defender voltar a bloquear, exclua so o arquivo, nunca a pasta inteira, em um PowerShell como administrador:
+
+```powershell
+Add-MpPreference -ExclusionPath "$env:LOCALAPPDATAgsyncingsync.exe"
+```
+
+Risco: o Defender deixa de examinar esse arquivo. Faca isso so depois de conferir o SHA256, e remova a exclusao com `Remove-MpPreference -ExclusionPath` se trocar de binario por um que voce nao conferiu.
+
+4. Para ajudar a corrigir a deteccao, envie o arquivo como falso positivo em <https://www.microsoft.com/wdsi/filesubmission>.
 
 ## Migracao a partir do agent-config
 
