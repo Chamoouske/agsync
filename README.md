@@ -12,13 +12,13 @@ O agsync aplica MCP servers e skills de um repositorio git de configuracao (o `a
 Windows (PowerShell, sem admin). Instala em `%LOCALAPPDATA%\agsync\bin` e poe essa pasta no PATH do usuario:
 
 ```powershell
-irm https://raw.githubusercontent.com/Chamoouske/agsync/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Chamoouske/agsync/master/install.ps1 | iex
 ```
 
 Uma versao especifica:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Chamoouske/agsync/main/install.ps1))) -Version 0.1.0
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Chamoouske/agsync/master/install.ps1))) -Version 0.1.0
 ```
 
 Nao use `-ExecutionPolicy Bypass`. O `irm ... | iex` roda sem mudar a politica de execucao, e o Defender costuma marcar justamente essa linha como suspeita. Se algo der errado, veja [Microsoft Defender e SmartScreen](#microsoft-defender-e-smartscreen).
@@ -26,7 +26,7 @@ Nao use `-ExecutionPolicy Bypass`. O `irm ... | iex` roda sem mudar a politica d
 Via Scoop, pelo manifest do proprio repositorio (`packaging/scoop`, que nao esta no formato de bucket, entao o Scoop instala direto pela URL):
 
 ```powershell
-scoop install https://raw.githubusercontent.com/Chamoouske/agsync/main/packaging/scoop/agsync.json
+scoop install https://raw.githubusercontent.com/Chamoouske/agsync/master/packaging/scoop/agsync.json
 ```
 
 O manifest do Winget esta em `packaging/winget`, pronto para um PR em `microsoft/winget-pkgs`. Enquanto esse PR nao for aceito, `winget install` nao encontra o agsync.
@@ -34,8 +34,8 @@ O manifest do Winget esta em `packaging/winget`, pronto para um PR em `microsoft
 Linux (x86_64, binario estatico). Instala em `~/.local/bin` e, se preciso, poe essa pasta no PATH pelo `~/.profile` e pelo `~/.bashrc`/`~/.zshrc` que existirem:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Chamoouske/agsync/main/install.sh | sh
-curl -fsSL https://raw.githubusercontent.com/Chamoouske/agsync/main/install.sh | sh -s -- --version 0.1.0
+curl -fsSL https://raw.githubusercontent.com/Chamoouske/agsync/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Chamoouske/agsync/master/install.sh | sh -s -- --version 0.1.0
 ```
 
 Os dois scripts baixam o binario do GitHub Releases e conferem o SHA256 com o `SHA256SUMS` da release. Os binarios nao tem assinatura de codigo.
