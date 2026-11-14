@@ -162,7 +162,7 @@ Uma fonte em branch ou tag e seguida: um commit novo nela tambem aparece no `che
 | `agsync init <url> --profile P` | configura a maquina (veja acima) |
 | `agsync status` | commit aplicado e remoto, mudancas pendentes, desvios, conflitos e itens pulados |
 | `agsync diff` | o que o proximo `apply` muda, por agente |
-| `agsync apply [--yes] [--adopt]` | mostra o diff e os builds, pede confirmacao e aplica; `--adopt` assume entradas manuais com o mesmo nome |
+| `agsync apply [--yes] [--adopt]` | mostra o diff e os builds, pede confirmacao e aplica; `--adopt` substitui instalacoes manuais com o mesmo nome (veja abaixo) |
 | `agsync rollback [--yes]` | reaplica o commit aplicado antes do atual, pelo mesmo fluxo de plano e apply |
 | `agsync check` | so le o remoto: grava `pending.json` e notifica uma vez por novidade; roda pelo agendador |
 | `agsync hook` | imprime a linha de pendencia, sem rede; roda pelo perfil do shell |
@@ -174,6 +174,19 @@ Uma fonte em branch ou tag e seguida: um commit novo nela tambem aparece no `che
 | `agsync uninstall [--yes] [--purge]` | tira dos agentes tudo o que esta no state, remove agendamento e hooks e apaga `state.json` e `pending.json` |
 
 Sem terminal, `apply`, `rollback`, `migrate-legacy` e `uninstall` so rodam com `--yes`.
+
+### Instalacoes manuais com o mesmo nome
+
+Um MCP, skill ou plugin instalado a mao que tem exatamente o mesmo nome, o mesmo tipo e o mesmo agente de um item do `agsync.yaml` e uma correspondencia:
+
+- `status` e `diff` mostram o item como `conflito` e listam todas as correspondencias no fim;
+- `check` registra as correspondencias no `pending.json` (`conflicts`) e na notificacao;
+- `apply` sem `--adopt` nao mexe nelas;
+- `apply --adopt` lista, antes da confirmacao, as instalacoes manuais que serao substituidas, troca cada uma pela definicao do `agsync.yaml` (origem, versao/ref e configuracao) com backup e passa a gerencia-la no `state.json`.
+
+Nome diferente, outro tipo (uma skill `x` nao corresponde a um MCP `x`) ou outro agente nunca contam como correspondencia. Se a substituicao de um item falha, o erro e mostrado, o item nao entra no `state.json` e continua como conflito no proximo `apply`.
+
+Plugins: no Claude Code, um plugin manual com o mesmo nome vindo de outro marketplace tambem conta, se for o unico com esse nome; o `--adopt` instala o do `agsync.yaml` e desinstala o manual. No OpenCode so conta o mesmo pacote.
 
 Depois de um `rollback`, o `check` volta a acusar o commit remoto como pendente. Isso e esperado: rode `agsync apply` para voltar a ele.
 
@@ -233,7 +246,7 @@ MCPs so valem depois de reiniciar o agente.
 
 ## Plugins
 
-So o que foi instalado pelo agsync e registrado no `state.json`. Plugin instalado a mao nunca e alterado nem removido.
+So o que foi instalado pelo agsync e registrado no `state.json`. Plugin instalado a mao so e alterado com `apply --adopt`, quando tem o mesmo nome de um plugin do `agsync.yaml` (veja [Instalacoes manuais com o mesmo nome](#instalacoes-manuais-com-o-mesmo-nome)).
 
 | agente | suporte | como |
 |---|---|---|
