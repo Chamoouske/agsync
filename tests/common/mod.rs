@@ -69,6 +69,7 @@ impl Env {
             .env("XDG_CONFIG_HOME", self.home.join(".config"))
             .env("AGSYNC_CONFIG_DIR", &self.config)
             .env("AGSYNC_DATA_DIR", &self.data)
+            .env("AGSYNC_TEST_NOTIFY_LOG", self.notify_log())
             .env("TEMP", &self.tmp)
             .env("TMP", &self.tmp)
             .env("TMPDIR", &self.tmp)
@@ -141,6 +142,26 @@ impl Env {
 
     pub fn state(&self) -> String {
         std::fs::read_to_string(self.data.join("state.json")).unwrap()
+    }
+
+    /// Where notifications land instead of the desktop.
+    pub fn notify_log(&self) -> PathBuf {
+        self.root.path().join("notify.log")
+    }
+
+    /// Notifications sent so far, one per line.
+    pub fn notifications(&self) -> Vec<String> {
+        let text = std::fs::read_to_string(self.notify_log()).unwrap_or_default();
+        text.lines().map(str::to_string).collect()
+    }
+
+    pub fn pending(&self) -> Option<Value> {
+        let text = std::fs::read_to_string(self.data.join("pending.json")).ok()?;
+        Some(serde_json::from_str(&text).unwrap())
+    }
+
+    pub fn check_log(&self) -> String {
+        std::fs::read_to_string(self.data.join("logs").join("check.log")).unwrap_or_default()
     }
 
     pub fn skill(&self, name: &str) -> PathBuf {

@@ -7,9 +7,12 @@ use crate::agent::link;
 use crate::cleanup;
 use crate::lock::Lock;
 use crate::paths::Dirs;
+use crate::pending::Pending;
 use crate::plan::{Action, Change};
 use crate::report::{AgentPlan, Report};
+use crate::resolved::Watched;
 use crate::state::State;
+use crate::watch::Watch;
 
 /// Shows the diff, asks for confirmation, applies, updates state, deletes the snapshot.
 pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
@@ -46,6 +49,7 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     report.snapshot.close()?;
     if failures == 0 {
         clean_caches(&report.dirs, &state);
+        settle_check(&report.dirs, &report.remote, &report.watched)?;
     }
 
     if !pending {
@@ -61,6 +65,16 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
         anyhow::bail!("{failures} item(ns) falharam; os demais foram aplicados");
     }
     Ok(())
+}
+
+/// After a clean apply nothing is pending, and `check` may stop early at this commit.
+fn settle_check(dirs: &Dirs, remote: &str, watched: &[Watched]) -> anyhow::Result<()> {
+    Pending::clear(&dirs.pending_file())?;
+    let watch = Watch {
+        commit: remote.to_string(),
+        sources: watched.to_vec(),
+    };
+    watch.save(&dirs.watch_file())
 }
 
 /// Deletes source checkouts and cached skills that no state entry uses.

@@ -52,6 +52,18 @@ impl Dirs {
     pub fn lock_file(&self) -> PathBuf {
         self.data.join("agsync.lock")
     }
+
+    pub fn pending_file(&self) -> PathBuf {
+        self.data.join("pending.json")
+    }
+
+    pub fn watch_file(&self) -> PathBuf {
+        self.data.join("watch.json")
+    }
+
+    pub fn last_check_file(&self) -> PathBuf {
+        self.data.join("last-check")
+    }
 }
 
 /// User home: `USERPROFILE` on Windows, `HOME` elsewhere.

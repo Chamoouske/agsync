@@ -25,7 +25,7 @@ pub struct AgentPlan {
 
 impl AgentPlan {
     /// Changes worth showing (everything but `Keep`).
-    fn visible(&self) -> impl Iterator<Item = (&'static str, &Change)> {
+    pub fn visible(&self) -> impl Iterator<Item = (&'static str, &Change)> {
         let mcps = self.mcps.iter().map(|c| ("mcp", c));
         let skills = self.skills.iter().map(|c| ("skill", c));
         mcps.chain(skills).filter(|(_, c)| c.action != Action::Keep)

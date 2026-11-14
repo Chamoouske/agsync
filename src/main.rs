@@ -36,6 +36,8 @@ enum Cmd {
         #[arg(long)]
         adopt: bool,
     },
+    /// Read the remote only; record pending changes and notify once. Run by the scheduler.
+    Check,
     /// Check git, the config repo, agents, requires, secrets and source repos.
     Doctor,
     /// Manage secrets.env, the local file for `${VAR}` values.
@@ -67,6 +69,7 @@ fn main() {
         Cmd::Status => agsync::report::status().map(|()| true),
         Cmd::Diff => agsync::report::diff().map(|()| true),
         Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt).map(|()| true),
+        Cmd::Check => agsync::check::check().map(|()| true),
         Cmd::Doctor => agsync::doctor::doctor(),
         Cmd::Secret {
             command: SecretCmd::Set { name },
