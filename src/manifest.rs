@@ -73,10 +73,14 @@ pub struct Source {
 }
 
 /// One skill entry: a folder in the config repo or in another git repo.
-#[derive(Debug, Deserialize)]
+///
+/// A git entry may list several folders in `paths`; [`Manifest::parse`] splits it into
+/// one skill per folder, so after parsing `paths` is always `None`.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Skill {
     pub path: Option<String>,
+    pub paths: Option<Vec<Spanned<String>>>,
     pub name: Option<String>,
     pub profiles: Option<Vec<String>>,
     pub agents: Option<Vec<String>>,
@@ -88,8 +92,9 @@ pub struct Skill {
 impl Manifest {
     /// Parses and validates the YAML text. Errors carry the line number.
     pub fn parse(text: &str) -> anyhow::Result<Manifest> {
-        let manifest: Manifest =
+        let mut manifest: Manifest =
             serde_saphyr::from_str(text).map_err(|e| anyhow::anyhow!("agsync.yaml: {e}"))?;
+        manifest.skills = split_paths(std::mem::take(&mut manifest.skills))?;
         manifest.validate()?;
         Ok(manifest)
     }
@@ -212,7 +217,7 @@ impl Manifest {
             check_ref(skill.git_ref.as_deref(), "git")?;
         }
         if skill.path.is_none() {
-            anyhow::bail!("defina path (pasta no repo de config ou no repo git)");
+            anyhow::bail!("defina path ou paths (pasta no repo de config ou no repo git)");
         }
         if skill.git.is_none() && skill.git_ref.is_some() {
             anyhow::bail!("ref so vale com git");
@@ -252,6 +257,45 @@ impl Skill {
         let last = base.trim_end_matches('/').rsplit('/').next().unwrap_or("");
         last.trim_end_matches(".git").to_string()
     }
+}
+
+/// One skill per folder of each `paths` entry, sharing its `git`, `ref`, `profiles` and
+/// `agents`. Each one carries the line of its own folder.
+fn split_paths(skills: Vec<Spanned<Skill>>) -> anyhow::Result<Vec<Spanned<Skill>>> {
+    let mut split = Vec::new();
+    for mut entry in skills {
+        let Some(paths) = entry.value.paths.take() else {
+            split.push(entry);
+            continue;
+        };
+        let line = entry.defined.line();
+        check_paths_entry(&entry.value, &paths)
+            .map_err(|e| anyhow::anyhow!("agsync.yaml linha {line}: skill: {e}"))?;
+        for path in paths {
+            let skill = Skill {
+                path: Some(path.value),
+                ..entry.value.clone()
+            };
+            split.push(Spanned::new(skill, path.referenced, path.defined));
+        }
+    }
+    Ok(split)
+}
+
+fn check_paths_entry(skill: &Skill, paths: &[Spanned<String>]) -> anyhow::Result<()> {
+    if skill.path.is_some() {
+        anyhow::bail!("defina path ou paths, nao os dois");
+    }
+    if skill.git.is_none() {
+        anyhow::bail!("paths so vale com git; no repo de config use uma entrada por path");
+    }
+    if paths.is_empty() {
+        anyhow::bail!("paths vazio; liste ao menos uma pasta");
+    }
+    if skill.name.is_some() {
+        anyhow::bail!("name nao vale com paths; use uma entrada com path para renomear");
+    }
+    Ok(())
 }
 
 /// True if the item has no profiles or one of them is active on this machine.
@@ -472,6 +516,101 @@ skills:
     path: a/s
 "#;
         assert!(err(clash).contains("mesmo nome"));
+    }
+
+    #[test]
+    fn git_paths_become_one_skill_per_folder() {
+        let text = r#"version: 1
+profiles: [work]
+skills:
+  - git: https://x/skills.git
+    ref: v1
+    profiles: [work]
+    agents: [claude]
+    paths:
+      - skills/engineering/pr
+      - skills/productivity/writing-for-agents
+  - path: local/hello
+"#;
+        let m = Manifest::parse(text).unwrap();
+        let names: Vec<_> = m.skills.iter().map(|s| s.value.name()).collect();
+        assert_eq!(names, ["pr", "writing-for-agents", "hello"]);
+        let lines: Vec<_> = m.skills.iter().map(|s| s.defined.line()).collect();
+        assert_eq!(lines, [9, 10, 11]);
+        for skill in &m.skills[..2] {
+            let skill = &skill.value;
+            assert_eq!(skill.git.as_deref(), Some("https://x/skills.git"));
+            assert_eq!(skill.git_ref.as_deref(), Some("v1"));
+            assert_eq!(skill.profiles, Some(vec!["work".to_string()]));
+            assert_eq!(skill.agents, Some(vec!["claude".to_string()]));
+            assert!(skill.paths.is_none());
+        }
+        assert_eq!(
+            m.skills[1].value.path.as_deref(),
+            Some("skills/productivity/writing-for-agents")
+        );
+    }
+
+    #[test]
+    fn git_paths_rejects_ambiguous_entries() {
+        let git = "version: 1
+skills:
+  - git: https://x/s.git
+    ref: v1
+";
+        let both = format!(
+            "{git}    path: a
+    paths: [b]
+"
+        );
+        assert!(err(&both).contains("nao os dois"), "{}", err(&both));
+        assert!(err(&both).contains("linha 3"), "{}", err(&both));
+        let empty = format!(
+            "{git}    paths: []
+"
+        );
+        assert!(err(&empty).contains("paths vazio"));
+        let named = format!(
+            "{git}    name: x
+    paths: [a, b]
+"
+        );
+        assert!(err(&named).contains("name nao vale"));
+        let local = "version: 1
+skills:
+  - paths: [a, b]
+";
+        assert!(err(local).contains("so vale com git"));
+        let no_ref = "version: 1
+skills:
+  - git: https://x/s.git
+    paths: [a]
+";
+        assert!(err(no_ref).contains("exige ref"));
+    }
+
+    #[test]
+    fn git_paths_checks_each_folder() {
+        let git = "version: 1
+skills:
+  - git: https://x/s.git
+    ref: v1
+    paths:
+";
+        let escapes = format!(
+            "{git}      - ok/a
+      - ../fora
+"
+        );
+        let msg = err(&escapes);
+        assert!(msg.contains("linha 7") && msg.contains("relativo"), "{msg}");
+        let dup = format!(
+            "{git}      - a/x
+      - b/x
+"
+        );
+        let msg = err(&dup);
+        assert!(msg.contains("linha 7") && msg.contains("repetida"), "{msg}");
     }
 
     #[test]
