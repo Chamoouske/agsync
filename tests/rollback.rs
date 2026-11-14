@@ -102,7 +102,7 @@ fn rollback_applies_the_previous_commit_through_the_normal_plan() {
 
     let (ok, out) = env.agsync(&["rollback"]);
     assert!(!ok, "{out}");
-    assert!(out.contains("sem TTY"), "{out}");
+    assert!(out.contains("rode `agsync rollback --yes`"), "{out}");
     assert_eq!(codex_args(&env), args(&["v2.js"]));
 
     let out = env.ok(&["rollback", "--yes"]);

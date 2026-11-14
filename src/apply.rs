@@ -1,7 +1,6 @@
 //! `agsync apply`: write planned changes, one item at a time.
 
 use std::collections::BTreeSet;
-use std::io::IsTerminal;
 
 use crate::agent::link;
 use crate::cleanup;
@@ -20,12 +19,18 @@ pub type AfterClean = fn(&Report) -> anyhow::Result<()>;
 pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
     let _lock = Lock::wait(&Dirs::from_env()?)?;
     let report = Report::build(adopt)?;
-    write(report, yes, settle_check).map(|_| ())
+    write(report, yes, "agsync apply", settle_check).map(|_| ())
 }
 
 /// Shows the diff, asks for confirmation, applies, updates state, deletes the snapshot.
-/// Returns false when the user said no. The caller holds the lock.
-pub fn write(report: Report, yes: bool, after_clean: AfterClean) -> anyhow::Result<bool> {
+/// Returns false when the user said no; `command` is named when `--yes` is missing.
+/// The caller holds the lock.
+pub fn write(
+    report: Report,
+    yes: bool,
+    command: &str,
+    after_clean: AfterClean,
+) -> anyhow::Result<bool> {
     report.print_changes();
     report.print_builds();
     report.print_skipped();
@@ -33,7 +38,8 @@ pub fn write(report: Report, yes: bool, after_clean: AfterClean) -> anyhow::Resu
     let mut state = report.state.clone();
     let pending = report.has_pending();
 
-    if pending && !confirmed(yes)? {
+    let question = "Aplicar estas mudancas?";
+    if pending && !crate::prompt::confirm(yes, question, command)? {
         report.snapshot.close()?;
         return Ok(false);
     }
@@ -116,20 +122,6 @@ fn run_builds(report: &Report) -> BTreeSet<String> {
         }
     }
     failed
-}
-
-fn confirmed(yes: bool) -> anyhow::Result<bool> {
-    if yes {
-        return Ok(true);
-    }
-    if !std::io::stdin().is_terminal() {
-        anyhow::bail!("sem TTY: nada aplicado; rode `agsync apply --yes`");
-    }
-    let ok = crate::prompt::yes_no("Aplicar estas mudancas?")?;
-    if !ok {
-        println!("cancelado");
-    }
-    Ok(ok)
 }
 
 #[derive(Default)]
