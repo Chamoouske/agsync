@@ -15,6 +15,7 @@ pub mod doctor;
 pub mod git;
 pub mod hash;
 pub mod hook;
+pub mod init;
 pub mod lock;
 pub mod machine;
 pub mod manifest;

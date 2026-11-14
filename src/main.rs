@@ -12,7 +12,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Save the config repo and active profiles for this machine.
+    /// Set up this machine: machine.toml, repo access, schedule, shell hook, first apply.
     Init {
         /// Git url of the config repo.
         url: String,
@@ -22,6 +22,9 @@ enum Cmd {
         /// Active profile; repeat for several.
         #[arg(long = "profile", required = true)]
         profiles: Vec<String>,
+        /// Install the shell hook and apply without asking.
+        #[arg(long)]
+        yes: bool,
     },
     /// Show applied and remote commits, pending changes, drift, conflicts and skips.
     Status,
@@ -108,7 +111,8 @@ fn main() {
             url,
             git_ref,
             profiles,
-        } => agsync::cmd::init(url, git_ref, profiles).map(|()| true),
+            yes,
+        } => agsync::init::init(url, git_ref, profiles, yes),
         Cmd::Status => agsync::report::status().map(|()| true),
         Cmd::Diff => agsync::report::diff().map(|()| true),
         Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt).map(|()| true),
