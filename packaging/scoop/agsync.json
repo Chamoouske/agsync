@@ -2,6 +2,7 @@
     "version": "0.1.0",
     "description": "Sync MCP servers and skills from a git config repo into coding agents",
     "homepage": "https://github.com/Chamoouske/agsync",
+    "license": "Proprietary",
     "architecture": {
         "64bit": {
             "url": "https://github.com/Chamoouske/agsync/releases/download/v0.1.0/agsync-x86_64-pc-windows-msvc.exe#/agsync.exe",
