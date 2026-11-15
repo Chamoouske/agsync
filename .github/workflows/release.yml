@@ -7,6 +7,7 @@ on:
       - "**/*.md"
       - "docs/**"
       - "LICENSE*"
+      - "packaging/**"
   workflow_dispatch:
 
 concurrency:
@@ -95,7 +96,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+
       - name: Download every binary
         uses: actions/download-artifact@v4.3.0
         with:
@@ -106,13 +116,58 @@ jobs:
         working-directory: dist
         run: sha256sum agsync-* > SHA256SUMS
 
-      - name: Tag the commit and publish the GitHub release with the binaries and SHA256SUMS
+      - name: Point the Scoop and WinGet manifests at this version
+        run: scripts/update-manifests.sh "$VERSION" dist/SHA256SUMS
+
+      - name: Check the manifests against SHA256SUMS
+        run: scripts/check-manifests.sh dist/SHA256SUMS
+
+      - name: Validate the manifests against the Scoop and WinGet schemas
+        env:
+          CHECK_JSONSCHEMA: pipx run check-jsonschema==0.33.0
+        run: scripts/validate-manifest-schemas.sh
+
+      - name: Tag the commit and publish the GitHub release as latest
         uses: softprops/action-gh-release@v2.2.2
         with:
           tag_name: v${{ needs.version.outputs.version }}
           target_commitish: ${{ github.sha }}
+          make_latest: "true"
           files: |
             dist/agsync-x86_64-pc-windows-msvc.exe
             dist/agsync-x86_64-unknown-linux-musl
             dist/SHA256SUMS
+            packaging/scoop/agsync.json
           generate_release_notes: true
+
+      - name: Check that the latest release is this version
+        run: |
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          if [ "$latest" != "v$VERSION" ]; then
+            echo "::error::latest release is $latest, expected v$VERSION"
+            exit 1
+          fi
+
+      - name: Check the manifests against the published asset
+        run: scripts/check-manifests.sh --remote
+
+      - name: Open a pull request with the updated manifests
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
+        run: |
+          branch="release/manifests-v$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add packaging
+          if git diff --cached --quiet; then
+            echo "manifests already point at v$VERSION"
+            exit 0
+          fi
+          git commit -m "chore(packaging): point manifests at v$VERSION"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch"
+          if ! gh pr create --base master --head "$branch" \
+            --title "chore(packaging): point manifests at v$VERSION" \
+            --body "Scoop and WinGet manifests for release v$VERSION, generated from the published SHA256SUMS."; then
+            echo "::warning::could not open the pull request; open it from $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/master...$branch"
+          fi
