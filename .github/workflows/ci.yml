@@ -36,3 +36,21 @@ jobs:
 
       - name: Run every test
         run: cargo test --no-fail-fast
+
+  manifests:
+    name: manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Test the manifest update and check scripts
+        run: scripts/test-manifests.sh
+
+      - name: Check that the manifests match the published asset
+        run: scripts/check-manifests.sh --remote
+
+      - name: Validate the manifests against the Scoop and WinGet schemas
+        env:
+          CHECK_JSONSCHEMA: pipx run check-jsonschema==0.33.0
+        run: scripts/validate-manifest-schemas.sh
