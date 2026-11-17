@@ -44,6 +44,9 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4.2.2
 
+      - name: Lint the workflows
+        run: pipx run --spec actionlint-py==1.7.12.25 actionlint
+
       - name: Test the manifest update and check scripts
         run: scripts/test-manifests.sh
 
