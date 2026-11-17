@@ -126,8 +126,13 @@ fn download(version: Version, asset: &str) -> anyhow::Result<Vec<u8>> {
     let base = std::env::var("AGSYNC_INSTALL_BASE_URL").unwrap_or(INSTALL_BASE_URL.to_string());
     let proto = protocol(&base)?;
     let url = format!("{}/download/v{version}", base.trim_end_matches('/'));
-    let bytes = curl(&format!("{url}/{asset}"), proto)?;
-    let sums = curl(&format!("{url}/SHA256SUMS"), proto)?;
+    let missing = || {
+        format!(
+            "release v{version} ainda sem binarios em {url}; tente mais tarde. Nada foi trocado"
+        )
+    };
+    let bytes = curl(&format!("{url}/{asset}"), proto)?.with_context(missing)?;
+    let sums = curl(&format!("{url}/SHA256SUMS"), proto)?.with_context(missing)?;
     let sums = String::from_utf8_lossy(&sums);
     let expected =
         expected_hash(&sums, asset).with_context(|| format!("SHA256SUMS nao tem {asset}"))?;
@@ -154,8 +159,9 @@ fn protocol(base: &str) -> anyhow::Result<&'static str> {
 }
 
 /// Body of `url`, kept in memory: nothing lands on disk before the hash is checked.
-/// `-q` comes first so no `.curlrc` changes the options.
-fn curl(url: &str, proto: &str) -> anyhow::Result<Vec<u8>> {
+/// `None` when the file does not exist (HTTP 404, or a missing `file://`). `-q` comes
+/// first so no `.curlrc` changes the options.
+fn curl(url: &str, proto: &str) -> anyhow::Result<Option<Vec<u8>>> {
     let exe = crate::which::require("curl").map_err(anyhow::Error::msg)?;
     let out = Command::new(exe)
         .args(["-q", "--proto", proto, "--proto-redir", proto, "-fsSL"])
@@ -163,13 +169,23 @@ fn curl(url: &str, proto: &str) -> anyhow::Result<Vec<u8>> {
         .stdin(Stdio::null())
         .output()
         .context("executar curl")?;
-    if !out.status.success() {
-        anyhow::bail!(
-            "baixar {url} falhou: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if not_found(out.status.code(), &stderr) {
+        return Ok(None);
     }
-    Ok(out.stdout)
+    if !out.status.success() {
+        anyhow::bail!("baixar {url} falhou: {}", stderr.trim());
+    }
+    Ok(Some(out.stdout))
+}
+
+/// curl exit 22 with HTTP 404 (`-f`), or 37: a `file://` that cannot be read.
+fn not_found(code: Option<i32>, stderr: &str) -> bool {
+    match code {
+        Some(22) => stderr.contains(" 404"),
+        Some(37) => true,
+        _ => false,
+    }
 }
 
 /// Hash of `asset` in a `SHA256SUMS` text: lines `<hash> <name>` or `<hash> *<name>`.
@@ -256,6 +272,18 @@ mod tests {
         );
         assert_eq!(expected_hash(sums, "agsync.exe"), None);
         assert_eq!(expected_hash("", "agsync.exe"), None);
+    }
+
+    #[test]
+    fn only_404_and_missing_files_count_as_not_found() {
+        let http_404 = "curl: (22) The requested URL returned error: 404";
+        let http_500 = "curl: (22) The requested URL returned error: 500";
+        assert!(not_found(Some(22), http_404));
+        assert!(!not_found(Some(22), http_500));
+        assert!(not_found(Some(37), "curl: (37) Couldn't open file"));
+        assert!(!not_found(Some(6), "curl: (6) Could not resolve host"));
+        assert!(!not_found(Some(0), ""));
+        assert!(!not_found(None, ""));
     }
 
     #[test]

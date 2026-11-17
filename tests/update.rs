@@ -325,3 +325,19 @@ fn failed_notification_is_retried_by_the_next_check() {
     env.ok(&["check"]);
     assert_eq!(update_notices(&env).len(), 1, "notified twice");
 }
+
+#[test]
+fn update_of_a_tag_without_binaries_says_so_and_changes_nothing() {
+    let mut env = setup();
+    let exe = agsync_copy(&env);
+    let before = std::fs::read(&exe).unwrap();
+    publish(&mut env, "99.0.0", b"x", &agsync::hash::hash_bytes(b"x"));
+    let repo = releases(&env, "newer-releases", &["v99.0.0", "v99.0.1"]);
+    use_releases(&mut env, &repo);
+
+    let (ok, out) = run(&env, &exe, &["update", "--yes"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("release v99.0.1 ainda sem binarios"), "{out}");
+    assert_eq!(std::fs::read(&exe).unwrap(), before);
+    assert_eq!(common::count(exe.parent().unwrap()), 1);
+}
