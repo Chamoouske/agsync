@@ -1,6 +1,7 @@
 //! `agsync update`: replaces this binary with the latest release after checking its
 //! SHA256, or runs `scoop update agsync` when Scoop installed it.
 
+use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -107,10 +108,10 @@ fn install(exe: &Path, version: Version, asset: &str) -> anyhow::Result<()> {
     let dir = exe.parent().context("pasta do agsync")?;
     let name = exe.file_name().context("nome do agsync")?.to_string_lossy();
     let old = dir.join(format!("{name}.old"));
-    let new = dir.join(format!("{name}.new"));
+    let new = dir.join(format!("{name}.new-{}", std::process::id()));
     std::fs::remove_file(&old).ok();
     let bytes = download(version, asset)?;
-    std::fs::write(&new, bytes).with_context(|| format!("gravar {}", new.display()))?;
+    write_new(&new, &bytes)?;
     if let Err(e) = swap(exe, &new, &old) {
         std::fs::remove_file(&new).ok();
         return Err(e);
@@ -119,6 +120,21 @@ fn install(exe: &Path, version: Version, asset: &str) -> anyhow::Result<()> {
         return Ok(());
     }
     restore(exe, &old)
+}
+
+/// Writes `bytes` to `path`, which must not exist yet; a partial file is deleted.
+fn write_new(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| format!("criar {}", path.display()))?;
+    if let Err(e) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+        drop(file);
+        std::fs::remove_file(path).ok();
+        return Err(e).with_context(|| format!("gravar {}", path.display()));
+    }
+    Ok(())
 }
 
 /// The release asset, after its SHA256 matched the one in `SHA256SUMS`.
@@ -272,6 +288,16 @@ mod tests {
         );
         assert_eq!(expected_hash(sums, "agsync.exe"), None);
         assert_eq!(expected_hash("", "agsync.exe"), None);
+    }
+
+    #[test]
+    fn write_new_never_overwrites() {
+        let dir = crate::tmp::TempDir::new("agsync-test").unwrap();
+        let path = dir.path().join("agsync.new-1");
+        write_new(&path, b"one").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"one");
+        assert!(write_new(&path, b"two").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"one");
     }
 
     #[test]

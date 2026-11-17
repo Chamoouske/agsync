@@ -150,6 +150,16 @@ fn publish(env: &mut Env, version: &str, asset: &[u8], hash: &str) {
     use_releases(env, &repo);
 }
 
+/// File names in `dir`, sorted.
+fn names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    names.sort();
+    names
+}
+
 fn run(env: &Env, exe: &Path, args: &[&str]) -> (bool, String) {
     let (code, text) = run_code(env, exe, args);
     (code == Some(0), text)
@@ -283,17 +293,12 @@ fn update_swaps_in_the_checked_binary() {
         agsync::hash::hash_bytes(&std::fs::read(&exe).unwrap()),
         hash
     );
-    let dir = exe.parent().unwrap();
-    assert!(
-        !dir.join(format!(
-            "{}.new",
-            exe.file_name().unwrap().to_string_lossy()
-        ))
-        .exists()
-    );
-    if cfg!(windows) {
-        assert!(dir.join("agsync.exe.old").exists());
-    }
+    let expected: &[&str] = if cfg!(windows) {
+        &["agsync.exe", "agsync.exe.old"]
+    } else {
+        &["agsync"]
+    };
+    assert_eq!(names(exe.parent().unwrap()), expected);
     assert!(run(&env, &exe, &["--version"]).0);
 }
 
