@@ -151,13 +151,80 @@ fn publish(env: &mut Env, version: &str, asset: &[u8], hash: &str) {
 }
 
 fn run(env: &Env, exe: &Path, args: &[&str]) -> (bool, String) {
+    let (code, text) = run_code(env, exe, args);
+    (code == Some(0), text)
+}
+
+/// Runs `exe` with the env; `SCOOP` and `SCOOP_GLOBAL` come only from `env.vars`.
+fn run_code(env: &Env, exe: &Path, args: &[&str]) -> (Option<i32>, String) {
     let mut cmd = std::process::Command::new(exe);
-    cmd.args(args);
+    cmd.args(args)
+        .env_remove("SCOOP")
+        .env_remove("SCOOP_GLOBAL");
     env.isolate(&mut cmd);
     let out = cmd.output().unwrap();
     let text = common::text(&out);
     eprintln!("$ {} {}\n{text}", exe.display(), args.join(" "));
-    (out.status.success(), text)
+    (out.status.code(), text)
+}
+
+/// A `scoop` first in `PATH` that exits with `FAKE_SCOOP_EXIT`.
+fn fake_scoop(env: &mut Env) {
+    let dir = env.root.path().join("scoop-bin");
+    std::fs::create_dir_all(&dir).unwrap();
+    if cfg!(windows) {
+        std::fs::write(dir.join("scoop.cmd"), "@exit /b %FAKE_SCOOP_EXIT%\r\n").unwrap();
+    } else {
+        let script = dir.join("scoop");
+        std::fs::write(&script, "#!/bin/sh\nexit \"$FAKE_SCOOP_EXIT\"\n").unwrap();
+        make_executable(&script);
+    }
+    let old = env.path.clone().unwrap_or_default();
+    let dirs = std::iter::once(dir).chain(std::env::split_paths(&old));
+    env.path = Some(std::env::join_paths(dirs).unwrap());
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) {}
+
+fn set_var(env: &mut Env, key: &str, value: &str) {
+    env.vars.retain(|(k, _)| k != key);
+    env.vars.push((key.to_string(), value.to_string()));
+}
+
+#[test]
+fn update_from_scoop_runs_scoop_and_passes_its_exit_code() {
+    let mut env = setup();
+    let exe = agsync_copy(&env);
+    let repo = releases(&env, "releases", &["v99.0.0"]);
+    use_releases(&mut env, &repo);
+    fake_scoop(&mut env);
+    let scoop_root = exe.parent().unwrap().to_string_lossy().to_string();
+    set_var(&mut env, "SCOOP", &scoop_root);
+    env.ok(&["check"]);
+    assert!(env.data.join("update.json").exists());
+    let before = std::fs::read(&exe).unwrap();
+
+    set_var(&mut env, "FAKE_SCOOP_EXIT", "3");
+    let (code, out) = run_code(&env, &exe, &["update", "--yes"]);
+    assert_eq!(code, Some(3), "{out}");
+    assert!(env.data.join("update.json").exists());
+
+    set_var(&mut env, "FAKE_SCOOP_EXIT", "0");
+    let (code, out) = run_code(&env, &exe, &["update", "--yes"]);
+    assert_eq!(code, Some(0), "{out}");
+    assert!(!env.data.join("update.json").exists());
+    assert_eq!(
+        std::fs::read(&exe).unwrap(),
+        before,
+        "scoop install was replaced"
+    );
 }
 
 #[test]

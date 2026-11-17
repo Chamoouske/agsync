@@ -35,7 +35,7 @@ pub fn update(yes: bool) -> anyhow::Result<bool> {
         return Ok(true);
     }
     let exe = crate::paths::current_exe()?;
-    if from_scoop(&exe) {
+    if from_scoop(&exe, &scoop_roots()) {
         let question = format!("agsync {current} -> {latest}: rodar `scoop update agsync`?");
         if !crate::prompt::confirm(yes, &question, "agsync update")? {
             return Ok(true);
@@ -52,10 +52,28 @@ pub fn update(yes: bool) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-/// True for a binary under Scoop's `apps` or `shims` folder.
-fn from_scoop(exe: &Path) -> bool {
-    let path = exe.to_string_lossy().to_lowercase().replace('/', "\\");
-    path.contains("\\scoop\\apps\\") || path.contains("\\scoop\\shims\\")
+/// `%SCOOP%` and `%SCOOP_GLOBAL%`: Scoop roots moved away from the defaults.
+fn scoop_roots() -> Vec<String> {
+    ["SCOOP", "SCOOP_GLOBAL"]
+        .iter()
+        .filter_map(|var| std::env::var(var).ok())
+        .filter(|root| !root.trim().is_empty())
+        .collect()
+}
+
+/// True for a binary under one of `roots` or under a `scoop\apps` or `scoop\shims`
+/// folder, ignoring case and slash direction.
+fn from_scoop(exe: &Path, roots: &[String]) -> bool {
+    let path = normalize(&exe.to_string_lossy());
+    let under_root = roots.iter().any(|root| {
+        let prefix = format!("{}\\", normalize(root).trim_end_matches('\\'));
+        path.starts_with(&prefix)
+    });
+    under_root || path.contains("\\scoop\\apps\\") || path.contains("\\scoop\\shims\\")
+}
+
+fn normalize(path: &str) -> String {
+    path.to_lowercase().replace('/', "\\")
 }
 
 /// Runs `scoop update agsync`; a failure exits with Scoop's exit code.
@@ -222,16 +240,24 @@ mod tests {
 
     #[test]
     fn scoop_paths_are_found_in_any_case() {
-        assert!(from_scoop(Path::new(
-            r"C:\Users\x\scoop\apps\agsync\current\agsync.exe"
-        )));
-        assert!(from_scoop(Path::new(r"C:\Users\x\Scoop\Shims\agsync.exe")));
-        assert!(from_scoop(Path::new(
-            "/c/Users/x/scoop/apps/agsync/agsync.exe"
-        )));
-        assert!(!from_scoop(Path::new(
-            r"C:\Users\x\AppData\Local\agsync\bin\agsync.exe"
-        )));
-        assert!(!from_scoop(Path::new("/home/x/.local/bin/agsync")));
+        let found = |path: &str| from_scoop(Path::new(path), &[]);
+        assert!(found(r"C:\Users\x\scoop\apps\agsync\current\agsync.exe"));
+        assert!(found(r"C:\Users\x\Scoop\Shims\agsync.exe"));
+        assert!(found("/c/Users/x/scoop/apps/agsync/agsync.exe"));
+        assert!(!found(r"C:\Users\x\AppData\Local\agsync\bin\agsync.exe"));
+        assert!(!found(r"C:\Users\x\scoop-tools\apps\agsync.exe"));
+        assert!(!found(r"C:\Users\x\scoop\agsync.exe"));
+        assert!(!found("/home/x/.local/bin/agsync"));
+    }
+
+    #[test]
+    fn scoop_roots_from_the_environment_match_by_prefix() {
+        let roots = [r"D:\Tools\Pkgs\".to_string(), "e:/global".to_string()];
+        let found = |path: &str| from_scoop(Path::new(path), &roots);
+        assert!(found(r"d:\tools\pkgs\apps\agsync\current\agsync.exe"));
+        assert!(found(r"E:\Global\shims\agsync.exe"));
+        assert!(!found(r"D:\Tools\Pkgs-old\agsync.exe"));
+        assert!(!found(r"D:\Tools\agsync.exe"));
+        assert!(!found(r"E:\globals\agsync.exe"));
     }
 }
