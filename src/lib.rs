@@ -41,5 +41,6 @@ pub mod source;
 pub mod state;
 pub mod tmp;
 pub mod uninstall;
+pub mod update;
 pub mod watch;
 pub mod which;
