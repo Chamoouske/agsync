@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::agent::{self, Adapter};
+use crate::compose::compose;
 use crate::desired::{Context, Desired};
 use crate::git::{self, Snapshot};
 use crate::machine::Machine;
@@ -151,15 +152,16 @@ impl Report {
         let remote = git::resolve(&inputs.machine.repo, &inputs.machine.git_ref)?;
         let snapshot = Snapshot::fetch(&inputs.machine.repo, &inputs.machine.git_ref, &remote)?;
         let manifest = read_manifest(&snapshot)?;
-        Report::plan(inputs, remote, snapshot, &manifest, adopt)
+        Report::plan(inputs, remote, snapshot, manifest, adopt)
     }
 
-    /// Plans each agent for a snapshot whose manifest is already read.
+    /// Plans each agent for a snapshot whose manifest is already read, with the imports
+    /// of the active profiles merged in.
     pub fn plan(
         inputs: Inputs,
         remote: String,
         snapshot: Snapshot,
-        manifest: &Manifest,
+        manifest: Manifest,
         adopt: bool,
     ) -> anyhow::Result<Report> {
         let Inputs {
@@ -168,8 +170,11 @@ impl Report {
             state,
             secrets,
         } = inputs;
+        let composed = compose(manifest, &machine.profiles)?;
+        let manifest = &composed.manifest;
         let sources = Resolved::new(manifest, &machine.profiles, &dirs);
         let mut skipped = sources.skipped.clone();
+        skipped.extend(composed.skipped.iter().cloned());
         let ctx = Context {
             manifest,
             root: snapshot.path(),
@@ -194,11 +199,15 @@ impl Report {
         }
         let builds = needed_builds(&sources, &agents);
         let reach: Vec<SkillReach> = agents.iter().map(SkillReach::of).collect();
-        let mut warnings = seen_anyway(manifest, &machine.profiles, &reach);
+        let mut warnings = composed.warnings.clone();
+        warnings.extend(seen_anyway(manifest, &machine.profiles, &reach));
         warnings.extend(duplicate_items(
             agents.iter().map(|p| (p.agent, &p.desired)),
         ));
-        let watched = sources.watched.clone();
+        let mut watched = sources.watched.clone();
+        watched.extend(composed.watched.iter().cloned());
+        watched.sort();
+        watched.dedup();
         Ok(Report {
             dirs,
             machine,
