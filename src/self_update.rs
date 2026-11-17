@@ -125,12 +125,13 @@ fn install(exe: &Path, version: Version, asset: &str) -> anyhow::Result<()> {
 /// The release asset, after its SHA256 matched the one in `SHA256SUMS`.
 fn download(version: Version, asset: &str) -> anyhow::Result<Vec<u8>> {
     let base = std::env::var("AGSYNC_INSTALL_BASE_URL").unwrap_or(INSTALL_BASE_URL.to_string());
+    let proto = protocol(&base)?;
     let url = format!("{}/download/v{version}", base.trim_end_matches('/'));
     let tmp = TempDir::new("agsync-update")?;
     let file = tmp.path().join(asset);
     let sums = tmp.path().join("SHA256SUMS");
-    curl(&format!("{url}/{asset}"), &file)?;
-    curl(&format!("{url}/SHA256SUMS"), &sums)?;
+    curl(&format!("{url}/{asset}"), &file, proto)?;
+    curl(&format!("{url}/SHA256SUMS"), &sums, proto)?;
     let sums = std::fs::read_to_string(&sums).context("ler SHA256SUMS")?;
     let expected =
         expected_hash(&sums, asset).with_context(|| format!("SHA256SUMS nao tem {asset}"))?;
@@ -144,10 +145,24 @@ fn download(version: Version, asset: &str) -> anyhow::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn curl(url: &str, dest: &Path) -> anyhow::Result<()> {
+/// The only protocol curl may use, redirects included: `=https`, or `=file` for a
+/// `file://` base (tests). Anything else, `http://` too, is refused.
+fn protocol(base: &str) -> anyhow::Result<&'static str> {
+    let base = base.to_lowercase();
+    if base.starts_with("https://") {
+        return Ok("=https");
+    }
+    if base.starts_with("file://") {
+        return Ok("=file");
+    }
+    anyhow::bail!("AGSYNC_INSTALL_BASE_URL '{base}' recusada: use https:// (ou file://)")
+}
+
+/// Downloads `url` to `dest`; `-q` first so no `.curlrc` changes the options.
+fn curl(url: &str, dest: &Path, proto: &str) -> anyhow::Result<()> {
     let exe = crate::which::require("curl").map_err(anyhow::Error::msg)?;
     let out = Command::new(exe)
-        .arg("-fsSL")
+        .args(["-q", "--proto", proto, "--proto-redir", proto, "-fsSL"])
         .arg("-o")
         .arg(dest)
         .arg(url)
@@ -247,6 +262,16 @@ mod tests {
         );
         assert_eq!(expected_hash(sums, "agsync.exe"), None);
         assert_eq!(expected_hash("", "agsync.exe"), None);
+    }
+
+    #[test]
+    fn curl_gets_https_or_file_and_nothing_else() {
+        assert_eq!(protocol(INSTALL_BASE_URL).unwrap(), "=https");
+        assert_eq!(protocol("HTTPS://mirror/x").unwrap(), "=https");
+        assert_eq!(protocol("file:///C:/rel").unwrap(), "=file");
+        assert!(protocol("http://mirror/x").is_err());
+        assert!(protocol("ftp://mirror/x").is_err());
+        assert!(protocol("mirror/x").is_err());
     }
 
     #[test]
