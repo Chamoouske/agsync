@@ -207,6 +207,7 @@ jobs:
   winget:
     name: winget
     needs: [version, manifests]
+    if: vars.WINGET_SUBMIT == 'true'
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.version.outputs.version }}
