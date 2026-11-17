@@ -1,0 +1,44 @@
+name: promote
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: promote stage to master
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Open the stage to master pull request and turn on auto-merge
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::secret RELEASE_PR_TOKEN is missing; a merge made with GITHUB_TOKEN would not start the release workflow"
+            exit 1
+          fi
+          changed=$(gh api "repos/$GH_REPO/compare/master...stage" --jq '.files | length')
+          if [ "$changed" -eq 0 ]; then
+            echo "stage has no changes for master"
+            exit 0
+          fi
+          url=$(gh pr list --base master --head stage --state open --json url --jq '.[0].url // empty')
+          if [ -z "$url" ]; then
+            url=$(gh pr create --base master --head stage \
+              --title "release: promote stage to master ($(date -u +%F))" \
+              --body "Daily promotion of stage to master. Merging it publishes a release.")
+          else
+            echo "pull request already open: $url"
+          fi
+          if ! gh pr merge "$url" --auto --merge; then
+            echo "::warning::could not enable auto-merge on $url; turn on Settings > General > Allow auto-merge or merge it by hand with a merge commit"
+          fi
