@@ -19,10 +19,15 @@ const INSTALL_BASE_URL: &str = "https://github.com/Chamoouske/agsync/releases";
 const DEFENDER_GUIDE: &str =
     "https://github.com/Chamoouske/agsync#microsoft-defender-e-smartscreen";
 
-#[cfg(windows)]
-const ASSET: &str = "agsync-x86_64-pc-windows-msvc.exe";
-#[cfg(not(windows))]
-const ASSET: &str = "agsync-x86_64-unknown-linux-musl";
+/// Release binary for `os` and `arch` (as in `std::env::consts`); releases only have
+/// Windows and Linux x86_64.
+fn release_asset(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("windows", "x86_64") => Some("agsync-x86_64-pc-windows-msvc.exe"),
+        ("linux", "x86_64") => Some("agsync-x86_64-unknown-linux-musl"),
+        _ => None,
+    }
+}
 
 /// Updates to the latest release after one confirmation.
 pub fn update(yes: bool) -> anyhow::Result<bool> {
@@ -42,11 +47,17 @@ pub fn update(yes: bool) -> anyhow::Result<bool> {
         }
         return scoop_update(&dirs);
     }
+    let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
+    let Some(asset) = release_asset(os, arch) else {
+        anyhow::bail!(
+            "nao ha binario do agsync para {os} {arch}; so Windows e Linux x86_64. Nada foi baixado"
+        );
+    };
     let question = format!("atualizar {} de {current} para {latest}?", exe.display());
     if !crate::prompt::confirm(yes, &question, "agsync update")? {
         return Ok(true);
     }
-    install(&exe, latest)?;
+    install(&exe, latest, asset)?;
     update::clear(&dirs)?;
     println!("agsync atualizado para {latest}");
     Ok(true)
@@ -93,13 +104,13 @@ fn scoop_update(dirs: &Dirs) -> anyhow::Result<bool> {
 
 /// Downloads and checks the release, swaps it in for `exe` and runs it once. A
 /// `<exe>.old` left by the last Windows update is deleted first, if it can be.
-fn install(exe: &Path, version: Version) -> anyhow::Result<()> {
+fn install(exe: &Path, version: Version, asset: &str) -> anyhow::Result<()> {
     let dir = exe.parent().context("pasta do agsync")?;
     let name = exe.file_name().context("nome do agsync")?.to_string_lossy();
     let old = dir.join(format!("{name}.old"));
     let new = dir.join(format!("{name}.new"));
     std::fs::remove_file(&old).ok();
-    let bytes = download(version)?;
+    let bytes = download(version, asset)?;
     std::fs::write(&new, bytes).with_context(|| format!("gravar {}", new.display()))?;
     if let Err(e) = swap(exe, &new, &old) {
         std::fs::remove_file(&new).ok();
@@ -112,22 +123,22 @@ fn install(exe: &Path, version: Version) -> anyhow::Result<()> {
 }
 
 /// The release asset, after its SHA256 matched the one in `SHA256SUMS`.
-fn download(version: Version) -> anyhow::Result<Vec<u8>> {
+fn download(version: Version, asset: &str) -> anyhow::Result<Vec<u8>> {
     let base = std::env::var("AGSYNC_INSTALL_BASE_URL").unwrap_or(INSTALL_BASE_URL.to_string());
     let url = format!("{}/download/v{version}", base.trim_end_matches('/'));
     let tmp = TempDir::new("agsync-update")?;
-    let asset = tmp.path().join(ASSET);
+    let file = tmp.path().join(asset);
     let sums = tmp.path().join("SHA256SUMS");
-    curl(&format!("{url}/{ASSET}"), &asset)?;
+    curl(&format!("{url}/{asset}"), &file)?;
     curl(&format!("{url}/SHA256SUMS"), &sums)?;
     let sums = std::fs::read_to_string(&sums).context("ler SHA256SUMS")?;
     let expected =
-        expected_hash(&sums, ASSET).with_context(|| format!("SHA256SUMS nao tem {ASSET}"))?;
-    let bytes = std::fs::read(&asset).with_context(|| format!("ler {}", asset.display()))?;
+        expected_hash(&sums, asset).with_context(|| format!("SHA256SUMS nao tem {asset}"))?;
+    let bytes = std::fs::read(&file).with_context(|| format!("ler {}", file.display()))?;
     let actual = crate::hash::hash_bytes(&bytes);
     if actual != expected {
         anyhow::bail!(
-            "SHA256 de {ASSET} nao confere: esperado {expected}, veio {actual}; nada foi trocado"
+            "SHA256 de {asset} nao confere: esperado {expected}, veio {actual}; nada foi trocado"
         );
     }
     Ok(bytes)
@@ -235,7 +246,23 @@ mod tests {
             Some("bbb")
         );
         assert_eq!(expected_hash(sums, "agsync.exe"), None);
-        assert_eq!(expected_hash("", ASSET), None);
+        assert_eq!(expected_hash("", "agsync.exe"), None);
+    }
+
+    #[test]
+    fn only_windows_and_linux_x86_64_have_a_binary() {
+        assert_eq!(
+            release_asset("windows", "x86_64"),
+            Some("agsync-x86_64-pc-windows-msvc.exe")
+        );
+        assert_eq!(
+            release_asset("linux", "x86_64"),
+            Some("agsync-x86_64-unknown-linux-musl")
+        );
+        assert_eq!(release_asset("linux", "aarch64"), None);
+        assert_eq!(release_asset("windows", "aarch64"), None);
+        assert_eq!(release_asset("macos", "x86_64"), None);
+        assert_eq!(release_asset("macos", "aarch64"), None);
     }
 
     #[test]
