@@ -54,21 +54,33 @@ pub fn compose(mut manifest: Manifest, active: &[String]) -> anyhow::Result<Comp
     })
 }
 
-/// Manifests of imported repos read in this run, by git url and commit.
+/// Imported repos seen in this run: each url and ref resolves once, so every kind
+/// importing it reads the same commit, and each commit is read once.
 #[derive(Default)]
 struct Remotes {
+    shas: BTreeMap<(String, String), String>,
     read: BTreeMap<(String, String), Manifest>,
 }
 
 impl Remotes {
     fn get(&mut self, import: &Import) -> anyhow::Result<(String, &Manifest)> {
-        let sha = git::resolve(&import.git, import.git_ref())?;
+        let sha = self.resolve(import)?;
         let key = (import.git.clone(), sha.clone());
         if !self.read.contains_key(&key) {
             let manifest = read_remote(import, &sha)?;
             self.read.insert(key.clone(), manifest);
         }
         Ok((sha, &self.read[&key]))
+    }
+
+    fn resolve(&mut self, import: &Import) -> anyhow::Result<String> {
+        let key = (import.git.clone(), import.git_ref().to_string());
+        if let Some(sha) = self.shas.get(&key) {
+            return Ok(sha.clone());
+        }
+        let sha = git::resolve(&import.git, import.git_ref())?;
+        self.shas.insert(key, sha.clone());
+        Ok(sha)
     }
 }
 
@@ -616,6 +628,24 @@ imports:
         assert_eq!(c.skipped.len(), 2, "{:?}", c.skipped);
         assert!(c.skipped[0].starts_with("mcp built: source.git local"));
         assert!(c.skipped[1].starts_with("skill local: git local"));
+    }
+
+    #[test]
+    fn same_url_and_ref_resolve_once_per_run() {
+        let repo = Repo::new(&mcps(&[("x", "one")]), &[]);
+        let import = Import {
+            git: repo.url.clone(),
+            git_ref: None,
+            profiles: None,
+            excludes: Vec::new(),
+        };
+        let mut remotes = Remotes::default();
+        let (first, _) = remotes.get(&import).unwrap();
+        let moved = repo.commit(&mcps(&[("x", "two")]));
+        let (again, remote) = remotes.get(&import).unwrap();
+        assert_eq!(again, first);
+        assert_ne!(moved, first);
+        assert_eq!(remote.mcps["x"].value.command.as_deref(), Some("one"));
     }
 
     #[test]
