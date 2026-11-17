@@ -80,7 +80,7 @@ enum Cmd {
         #[arg(long)]
         purge: bool,
     },
-    /// Replace this binary with the latest release (or run `scoop update agsync`).
+    /// Replace this binary with the latest release (installed by Scoop: tells to run `scoop update agsync`).
     Update {
         /// Update without asking; required when stdin is not a terminal.
         #[arg(long)]

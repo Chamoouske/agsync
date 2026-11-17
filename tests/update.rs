@@ -209,27 +209,23 @@ fn set_var(env: &mut Env, key: &str, value: &str) {
 }
 
 #[test]
-fn update_from_scoop_runs_scoop_and_passes_its_exit_code() {
+fn update_from_scoop_prints_the_scoop_command_and_keeps_the_notice() {
     let mut env = setup();
     let exe = agsync_copy(&env);
     let repo = releases(&env, "releases", &["v99.0.0"]);
     use_releases(&mut env, &repo);
     fake_scoop(&mut env);
+    set_var(&mut env, "FAKE_SCOOP_EXIT", "3");
     let scoop_root = exe.parent().unwrap().to_string_lossy().to_string();
     set_var(&mut env, "SCOOP", &scoop_root);
     env.ok(&["check"]);
     assert!(env.data.join("update.json").exists());
     let before = std::fs::read(&exe).unwrap();
 
-    set_var(&mut env, "FAKE_SCOOP_EXIT", "3");
     let (code, out) = run_code(&env, &exe, &["update", "--yes"]);
-    assert_eq!(code, Some(3), "{out}");
+    assert_eq!(code, Some(0), "scoop was run: {out}");
+    assert!(out.contains("scoop update agsync"), "{out}");
     assert!(env.data.join("update.json").exists());
-
-    set_var(&mut env, "FAKE_SCOOP_EXIT", "0");
-    let (code, out) = run_code(&env, &exe, &["update", "--yes"]);
-    assert_eq!(code, Some(0), "{out}");
-    assert!(!env.data.join("update.json").exists());
     assert_eq!(
         std::fs::read(&exe).unwrap(),
         before,
