@@ -120,3 +120,112 @@ fn unreachable_release_repo_is_logged_and_check_goes_on() {
     assert!(env.pending().is_some());
     assert!(!env.data.join("update.json").exists());
 }
+
+#[cfg(windows)]
+const ASSET: &str = "agsync-x86_64-pc-windows-msvc.exe";
+#[cfg(not(windows))]
+const ASSET: &str = "agsync-x86_64-unknown-linux-musl";
+
+/// A copy of the agsync under test, so that an update never touches cargo's binary.
+fn agsync_copy(env: &Env) -> PathBuf {
+    let dir = env.root.path().join("bin");
+    std::fs::create_dir_all(&dir).unwrap();
+    let exe = dir.join(format!("agsync{}", std::env::consts::EXE_SUFFIX));
+    std::fs::copy(env!("CARGO_BIN_EXE_agsync"), &exe).unwrap();
+    exe
+}
+
+/// Release `version` with `asset` as the binary and `hash` in `SHA256SUMS`; the
+/// `AGSYNC_INSTALL_BASE_URL` is a `file://` url for curl.
+fn publish(env: &mut Env, version: &str, asset: &[u8], hash: &str) {
+    let base = env.root.path().join("release-files");
+    let dir = base.join("download").join(format!("v{version}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(ASSET), asset).unwrap();
+    std::fs::write(dir.join("SHA256SUMS"), format!("{hash}  {ASSET}\n")).unwrap();
+    let path = base.to_string_lossy().replace('\\', "/");
+    let url = format!("file:///{}", path.trim_start_matches('/'));
+    env.vars.push(("AGSYNC_INSTALL_BASE_URL".to_string(), url));
+    let repo = releases(env, "releases", &[&format!("v{version}")]);
+    use_releases(env, &repo);
+}
+
+fn run(env: &Env, exe: &Path, args: &[&str]) -> (bool, String) {
+    let mut cmd = std::process::Command::new(exe);
+    cmd.args(args);
+    env.isolate(&mut cmd);
+    let out = cmd.output().unwrap();
+    let text = common::text(&out);
+    eprintln!("$ {} {}\n{text}", exe.display(), args.join(" "));
+    (out.status.success(), text)
+}
+
+#[test]
+fn update_refuses_a_wrong_hash_and_changes_nothing() {
+    let mut env = setup();
+    let exe = agsync_copy(&env);
+    let before = std::fs::read(&exe).unwrap();
+    let wrong = "0".repeat(64);
+    publish(&mut env, "99.0.0", b"not agsync", &wrong);
+
+    let (ok, out) = run(&env, &exe, &["update", "--yes"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("nao confere"), "{out}");
+    assert!(out.contains("nada foi trocado"), "{out}");
+    assert_eq!(std::fs::read(&exe).unwrap(), before);
+    assert_eq!(common::count(exe.parent().unwrap()), 1);
+}
+
+#[test]
+fn update_without_terminal_needs_yes() {
+    let mut env = setup();
+    let exe = agsync_copy(&env);
+    publish(&mut env, "99.0.0", b"x", &agsync::hash::hash_bytes(b"x"));
+    let (ok, out) = run(&env, &exe, &["update"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("rode `agsync update --yes`"), "{out}");
+}
+
+#[test]
+fn update_at_the_latest_version_does_nothing() {
+    let mut env = setup();
+    let repo = releases(&env, "releases", &["v0.0.1"]);
+    use_releases(&mut env, &repo);
+    let out = env.ok(&["update", "--yes"]);
+    assert!(
+        out.contains(&format!("agsync {CURRENT} ja e a ultima versao")),
+        "{out}"
+    );
+}
+
+#[test]
+fn update_swaps_in_the_checked_binary() {
+    let mut env = setup();
+    let exe = agsync_copy(&env);
+    let new = std::fs::read(env!("CARGO_BIN_EXE_agsync")).unwrap();
+    let hash = agsync::hash::hash_bytes(&new);
+    publish(&mut env, "99.0.0", &new, &hash.to_uppercase());
+    env.ok(&["check"]);
+    assert!(env.data.join("update.json").exists());
+
+    let (ok, out) = run(&env, &exe, &["update", "--yes"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("agsync atualizado para 99.0.0"), "{out}");
+    assert!(!env.data.join("update.json").exists());
+    assert_eq!(
+        agsync::hash::hash_bytes(&std::fs::read(&exe).unwrap()),
+        hash
+    );
+    let dir = exe.parent().unwrap();
+    assert!(
+        !dir.join(format!(
+            "{}.new",
+            exe.file_name().unwrap().to_string_lossy()
+        ))
+        .exists()
+    );
+    if cfg!(windows) {
+        assert!(dir.join("agsync.exe.old").exists());
+    }
+    assert!(run(&env, &exe, &["--version"]).0);
+}

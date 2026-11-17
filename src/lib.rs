@@ -35,6 +35,7 @@ pub mod resolved;
 pub mod rollback;
 pub mod schedule;
 pub mod secret;
+pub mod self_update;
 pub mod shell;
 pub mod snapshot_cache;
 pub mod source;
