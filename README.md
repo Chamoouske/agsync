@@ -48,6 +48,8 @@ curl -fsSL https://raw.githubusercontent.com/Chamoouske/agsync/master/install.sh
 
 Os scripts `install.ps1` e `install.sh` baixam o binario do GitHub Releases e conferem o SHA256 com o `SHA256SUMS` da release. Os binarios nao tem assinatura de codigo.
 
+Depois de instalado, `agsync update` atualiza para a ultima release (veja [Comandos](#comandos)).
+
 ### Cargo
 
 Com Rust instalado:
@@ -188,8 +190,9 @@ Uma fonte em branch ou tag e seguida: um commit novo nela tambem aparece no `che
 | `agsync diff` | o que o proximo `apply` muda, por agente |
 | `agsync apply [--yes] [--adopt]` | mostra o diff e os builds, pede confirmacao e aplica; `--adopt` substitui instalacoes manuais com o mesmo nome (veja abaixo) |
 | `agsync rollback [--yes]` | reaplica o commit aplicado antes do atual, pelo mesmo fluxo de plano e apply |
-| `agsync check` | so le o remoto: grava `pending.json` e notifica uma vez por novidade; roda pelo agendador |
-| `agsync hook` | imprime a linha de pendencia, sem rede; roda pelo perfil do shell |
+| `agsync check` | so le o remoto: grava `pending.json` e notifica uma vez por novidade; antes, ve se ha versao nova do agsync (grava `update.json` e notifica uma vez por versao); roda pelo agendador |
+| `agsync hook` | imprime a linha de pendencia e a de versao nova, sem rede; roda pelo perfil do shell |
+| `agsync update [--yes]` | atualiza o agsync para a ultima release: baixa o binario, confere o SHA256 com o `SHA256SUMS` e troca o executavel; instalado pelo Scoop, roda `scoop update agsync` |
 | `agsync hook install [--yes]` / `hook remove` | poe ou tira o hook em PowerShell, pwsh, bash, zsh e fish |
 | `agsync schedule install\|remove\|status` | o `check` periodico: Agendador de Tarefas no Windows, timer do systemd de usuario ou cron no Linux |
 | `agsync secret set NOME` / `secret list` | grava um valor no `secrets.env`, ou lista os nomes |
@@ -197,7 +200,9 @@ Uma fonte em branch ou tag e seguida: um commit novo nela tambem aparece no `che
 | `agsync migrate-legacy [--yes]` | backup e remocao do sistema antigo (veja [Migracao](#migracao-a-partir-do-agent-config)) |
 | `agsync uninstall [--yes] [--purge]` | tira dos agentes tudo o que esta no state, remove agendamento e hooks e apaga `state.json` e `pending.json` |
 
-Sem terminal, `apply`, `rollback`, `migrate-legacy` e `uninstall` so rodam com `--yes`.
+Sem terminal, `apply`, `rollback`, `migrate-legacy`, `uninstall` e `update` so rodam com `--yes`.
+
+Com versao nova, `agsync hook` e os outros comandos mostram `` agsync <nova> disponivel (atual <atual>): rode `agsync update` ``. As versoes vem das tags `vX.Y.Z` do repo do agsync, lidas com `git ls-remote`; sem rede, o `check` so registra a falha no log. No Windows, o binario anterior fica como `agsync.exe.old` ate o proximo `update`; se o novo nao executar, o anterior volta e o Defender ou o SmartScreen provavelmente bloqueou (veja [Microsoft Defender e SmartScreen](#microsoft-defender-e-smartscreen)).
 
 ### Instalacoes manuais com o mesmo nome
 

@@ -74,6 +74,7 @@ impl Env {
             .env("XDG_CONFIG_HOME", self.home.join(".config"))
             .env("AGSYNC_CONFIG_DIR", &self.config)
             .env("AGSYNC_DATA_DIR", &self.data)
+            .env("AGSYNC_RELEASES_URL", self.root.path().join("no-releases"))
             .env("AGSYNC_TEST_NOTIFY_LOG", self.notify_log())
             .env("AGSYNC_TEST_SCHEDULE_FILE", self.schedule_file())
             .env("AGSYNC_DOCUMENTS_DIR", self.home.join("Documents"))

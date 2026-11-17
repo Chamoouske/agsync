@@ -43,6 +43,7 @@ pub fn doctor() -> anyhow::Result<bool> {
     }
     check_git(&mut checks);
     let dirs = Dirs::from_env()?;
+    check_version(&mut checks, &dirs);
     check_agents(&mut checks);
     check_secrets_file(&mut checks, &dirs);
     check_backups(&mut checks, &dirs);
@@ -92,6 +93,13 @@ pub fn hint(error: &str) -> Option<&'static str> {
         );
     }
     None
+}
+
+fn check_version(checks: &mut Checks, dirs: &Dirs) {
+    checks.info(&format!("agsync {}", crate::update::Version::current()));
+    if let Some(newer) = crate::update::recorded(dirs) {
+        checks.info(&crate::update::line(newer));
+    }
 }
 
 fn check_git(checks: &mut Checks) {

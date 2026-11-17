@@ -1,5 +1,6 @@
 //! `agsync hook`: run by the shell at startup. Never touches the network: prints the
-//! pending line and, when no check ran for too long, starts one in the background.
+//! pending and new version lines and, when no check ran for too long, starts one in the
+//! background.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -11,12 +12,15 @@ use crate::machine::Machine;
 use crate::paths::Dirs;
 use crate::pending::Pending;
 
-/// Prints the pending line, if any, and starts a background check when the last one is
+/// Prints the pending and new version lines, if any, and starts a background check when the last one is
 /// older than twice the interval (no working scheduler, as in WSL without systemd).
 pub fn hook() -> anyhow::Result<()> {
     let dirs = Dirs::from_env()?;
     if let Some(pending) = Pending::load(&dirs.pending_file()) {
         println!("{}", pending.line());
+    }
+    if let Some(newer) = crate::update::recorded(&dirs) {
+        println!("{}", crate::update::line(newer));
     }
     if check_overdue(&dirs) {
         start_check(&dirs)?;
@@ -24,13 +28,17 @@ pub fn hook() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The pending line on stderr, for commands that do not handle `pending.json` themselves.
+/// The pending and new version lines on stderr, for commands that do not handle
+/// `pending.json` themselves.
 pub fn warn_pending() {
     let Ok(dirs) = Dirs::from_env() else {
         return;
     };
     if let Some(pending) = Pending::load(&dirs.pending_file()) {
         eprintln!("{}", pending.line());
+    }
+    if let Some(newer) = crate::update::recorded(&dirs) {
+        eprintln!("{}", crate::update::line(newer));
     }
 }
 

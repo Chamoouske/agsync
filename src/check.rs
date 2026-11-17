@@ -14,13 +14,14 @@ use crate::report::{Inputs, Report, read_manifest};
 use crate::resolved::Watched;
 use crate::watch::Watch;
 
-/// Runs one check. A busy lock exits at once, in silence; an unreachable remote is
-/// logged and is not an error.
+/// Runs one check: first a new agsync release, then the config repo. A busy lock exits
+/// at once, in silence; an unreachable remote is logged and is not an error.
 pub fn check() -> anyhow::Result<()> {
     let dirs = Dirs::from_env()?;
     let Some(_lock) = Lock::try_take(&dirs)? else {
         return Ok(());
     };
+    checklog::write(&dirs, &crate::update::refresh(&dirs));
     match run(&dirs) {
         Ok(text) => {
             checklog::write(&dirs, &text);
