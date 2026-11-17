@@ -39,7 +39,7 @@ O manifest de `master` (`https://raw.githubusercontent.com/Chamoouske/agsync/mas
 
 ### WinGet
 
-Depois que o manifest for aceito em `microsoft/winget-pkgs`:
+Cada release envia o manifest de `packaging/winget` como PR para `microsoft/winget-pkgs` (veja [Publicacao de releases](#publicacao-de-releases)). Depois que ele for aceito:
 
 ```powershell
 winget install --id Chamoouske.agsync --exact
@@ -459,17 +459,20 @@ gh api -X PUT repos/Chamoouske/agsync/rulesets/27269112 --input .github/rulesets
 Cada push em `master` (fora `*.md`, `docs/`, `LICENSE*` e `packaging/`) roda o workflow `release`:
 
 1. `ci` e os builds de Windows e Linux; a versao sai dos Conventional Commits desde a ultima tag (`scripts/next-version.sh`).
-2. O job `publish` gera o `SHA256SUMS` dos binarios e roda `scripts/update-manifests.sh <versao> dist/SHA256SUMS`, que reescreve versao, URL e hash em `packaging/scoop/agsync.json` e nos tres arquivos de `packaging/winget` (o hash do WinGet em maiusculas, o `autoupdate` do Scoop intacto).
-3. `scripts/check-manifests.sh dist/SHA256SUMS` confere que os quatro arquivos tem a mesma versao, o `PackageIdentifier` `Chamoouske.agsync`, as URLs da tag `v<versao>` e o hash do `SHA256SUMS`. `scripts/validate-manifest-schemas.sh` valida contra o schema do Scoop e os schemas 1.6.0 do WinGet.
-4. A release `v<versao>` e publicada como `latest` (`make_latest`), com os binarios, o `SHA256SUMS` e o `agsync.json` do Scoop. O job confere que `releases/latest` e essa tag e roda `scripts/check-manifests.sh --remote`, que baixa o binario publicado e compara o hash.
-5. Os manifests atualizados vao para a branch `release/manifests-v<versao>` e o job abre um PR para `master`. O merge desse PR nao dispara outra release, porque `packaging/` esta no `paths-ignore`.
+2. O job `publish` gera o `SHA256SUMS` dos binarios e publica a release `v<versao>` como `latest` (`make_latest`), com os binarios e o `SHA256SUMS`, e confere que `releases/latest` e essa tag. A release nao depende dos manifests.
+3. O job `manifests` baixa o `SHA256SUMS` da release e roda `scripts/update-manifests.sh <versao> dist/SHA256SUMS`, que reescreve versao, URL e hash em `packaging/scoop/agsync.json` e nos tres arquivos de `packaging/winget` (o hash do WinGet em maiusculas, o `autoupdate` do Scoop intacto).
+4. Antes de publicar qualquer manifest, `scripts/check-manifests.sh dist/SHA256SUMS` confere que os quatro arquivos tem a mesma versao, o `PackageIdentifier` `Chamoouske.agsync`, as URLs da tag `v<versao>` e o hash do `SHA256SUMS`; `scripts/check-manifests.sh --remote` baixa o binario publicado e compara o hash; `scripts/validate-manifest-schemas.sh` valida contra o schema do Scoop e os schemas 1.6.0 do WinGet.
+5. Validados, o `agsync.json` do Scoop e anexado a release (`gh release upload --clobber`), e os manifests vao para a branch `release/manifests-v<versao>` com um PR para `master`. O merge desse PR nao dispara outra release, porque `packaging/` esta no `paths-ignore`.
+6. O job `winget` envia os arquivos de `packaging/winget` para `microsoft/winget-pkgs` com `wingetcreate submit`. Se a versao ja existe la, nao faz nada.
 
-O workflow `ci` tambem tem o job `manifests`: roda `scripts/test-manifests.sh` (manifest desatualizado, URL de outra versao, hash divergente do `SHA256SUMS`, do outro manifest ou do artefato publicado), confere os manifests de `master` contra o binario publicado e valida os schemas.
+Falhas nos manifests: os jobs `manifests` e `winget` rodam depois da release, entao uma falha neles nao desfaz nem bloqueia a release. O job que falhou fica vermelho no run e deixa um erro `release v<versao> is published, but ...` dizendo o que nao foi atualizado. Para tratar, corrija a causa e use "Re-run failed jobs" no run; os dois jobs podem rodar de novo (o anexo usa `--clobber`, a branch e reenviada e o PR existente e reaproveitado). Ate isso, `releases/latest/download/agsync.json` nao existe na release nova.
+
+O workflow `ci` tambem tem o job `manifests`: passa o `actionlint` nos workflows, roda `scripts/test-manifests.sh` (manifest desatualizado, URL de outra versao, hash divergente do `SHA256SUMS`, do outro manifest ou do artefato publicado), confere os manifests de `master` contra o binario publicado e valida os schemas.
 
 Configuracao externa:
 
 - Secret `RELEASE_PR_TOKEN`: token (fine-grained, com Contents e Pull requests de escrita neste repo) usado para abrir o PR de manifests. Sem ele o job usa o `GITHUB_TOKEN`, e o GitHub nao roda o `ci` em PR aberto por esse token, entao os checks obrigatorios ficam pendentes; feche e reabra o PR ou faca um push nele para rodar o CI. Sem o secret, abrir o PR tambem exige Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests"; se nem isso estiver ligado, o job deixa um aviso com o link para abrir o PR na mao.
-- WinGet: `packaging/winget` e so a fonte. Publicar em `winget install` ainda depende de um PR em `microsoft/winget-pkgs` com esses arquivos (por exemplo com `wingetcreate submit`), que nao esta automatizado.
+- Secret `WINGET_TOKEN`: token classic com o escopo `public_repo` de uma conta que pode fazer fork de `microsoft/winget-pkgs`; o `wingetcreate` abre o PR a partir desse fork. Sem o secret, o job `winget` deixa um aviso e nao envia nada; envie `packaging/winget` na mao com `wingetcreate submit`. O PR em `microsoft/winget-pkgs` ainda passa pela validacao e revisao de la; `winget install` so encontra a versao nova depois do merge.
 
 ## Migracao a partir do agent-config
 

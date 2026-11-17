@@ -96,16 +96,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     env:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4.2.2
-        with:
-          persist-credentials: false
-
       - name: Download every binary
         uses: actions/download-artifact@v4.3.0
         with:
@@ -115,17 +109,6 @@ jobs:
       - name: Write SHA256SUMS
         working-directory: dist
         run: sha256sum agsync-* > SHA256SUMS
-
-      - name: Point the Scoop and WinGet manifests at this version
-        run: scripts/update-manifests.sh "$VERSION" dist/SHA256SUMS
-
-      - name: Check the manifests against SHA256SUMS
-        run: scripts/check-manifests.sh dist/SHA256SUMS
-
-      - name: Validate the manifests against the Scoop and WinGet schemas
-        env:
-          CHECK_JSONSCHEMA: pipx run check-jsonschema==0.33.0
-        run: scripts/validate-manifest-schemas.sh
 
       - name: Tag the commit and publish the GitHub release as latest
         uses: softprops/action-gh-release@v2.2.2
@@ -137,7 +120,6 @@ jobs:
             dist/agsync-x86_64-pc-windows-msvc.exe
             dist/agsync-x86_64-unknown-linux-musl
             dist/SHA256SUMS
-            packaging/scoop/agsync.json
           generate_release_notes: true
 
       - name: Check that the latest release is this version
@@ -148,8 +130,48 @@ jobs:
             exit 1
           fi
 
+  manifests:
+    name: manifests
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download SHA256SUMS from the published release
+        run: gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir dist
+
+      - name: Point the Scoop and WinGet manifests at this version
+        run: scripts/update-manifests.sh "$VERSION" dist/SHA256SUMS
+
+      - name: Check the manifests against SHA256SUMS
+        run: scripts/check-manifests.sh dist/SHA256SUMS
+
       - name: Check the manifests against the published asset
         run: scripts/check-manifests.sh --remote
+
+      - name: Validate the manifests against the Scoop and WinGet schemas
+        env:
+          CHECK_JSONSCHEMA: pipx run check-jsonschema==0.33.0
+        run: scripts/validate-manifest-schemas.sh
+
+      - name: Attach the Scoop manifest to the release
+        run: gh release upload "v$VERSION" packaging/scoop/agsync.json --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Keep the WinGet manifests for the winget job
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: winget-manifests
+          path: packaging/winget
+          if-no-files-found: error
 
       - name: Open a pull request with the updated manifests
         env:
@@ -165,9 +187,53 @@ jobs:
             exit 0
           fi
           git commit -m "chore(packaging): point manifests at v$VERSION"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch"
+          if gh pr view "$branch" > /dev/null 2>&1; then
+            echo "pull request for $branch already open"
+            exit 0
+          fi
           if ! gh pr create --base master --head "$branch" \
             --title "chore(packaging): point manifests at v$VERSION" \
             --body "Scoop and WinGet manifests for release v$VERSION, generated from the published SHA256SUMS."; then
             echo "::warning::could not open the pull request; open it from $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/master...$branch"
           fi
+
+      - name: Report that the release is out but the manifests are not
+        if: failure()
+        run: echo "::error::release v$VERSION is published, but the Scoop and WinGet manifests were not updated. Fix the failing step and use Re-run failed jobs; the release is not rolled back."
+
+  winget:
+    name: winget
+    needs: [version, manifests]
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download the WinGet manifests
+        uses: actions/download-artifact@v4.3.0
+        with:
+          name: winget-manifests
+          path: winget
+
+      - name: Submit the manifests to microsoft/winget-pkgs
+        shell: pwsh
+        run: |
+          if (-not $env:WINGET_TOKEN) {
+            echo "::warning::WINGET_TOKEN is not set; v$env:VERSION was not submitted to microsoft/winget-pkgs. Submit packaging/winget by hand with wingetcreate submit."
+            exit 0
+          }
+          gh api "repos/microsoft/winget-pkgs/contents/manifests/c/Chamoouske/agsync/$env:VERSION" --silent 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            echo "Chamoouske.agsync $env:VERSION is already in microsoft/winget-pkgs"
+            exit 0
+          }
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe submit --no-open --prtitle "New version: Chamoouske.agsync version $env:VERSION" --token $env:WINGET_TOKEN winget
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Report that the release is out but WinGet was not updated
+        if: failure()
+        shell: pwsh
+        run: echo "::error::release v$env:VERSION is published, but its manifests were not submitted to microsoft/winget-pkgs. Fix the failing step and use Re-run failed jobs; the release is not rolled back."
