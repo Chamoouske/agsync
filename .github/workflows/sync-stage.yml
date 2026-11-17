@@ -1,0 +1,44 @@
+name: sync-stage
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: sync-stage
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  sync:
+    name: sync stage with master
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Open the master to stage pull request and turn on auto-merge
+        run: |
+          missing=$(gh api "repos/$GH_REPO/compare/stage...master" --jq '.ahead_by')
+          if [ "$missing" -eq 0 ]; then
+            echo "stage already has every master commit"
+            exit 0
+          fi
+          url=$(gh pr list --base stage --head master --state open --json url --jq '.[0].url // empty')
+          if [ -z "$url" ]; then
+            if ! url=$(gh pr create --base stage --head master \
+              --title "chore: sync stage with master" \
+              --body "Brings hotfixes, manifest updates and promotion merges from master back into stage."); then
+              echo "::warning::could not open the pull request; open it from $GITHUB_SERVER_URL/$GH_REPO/compare/stage...master"
+              exit 0
+            fi
+          else
+            echo "pull request already open: $url"
+          fi
+          if ! gh pr merge "$url" --auto --merge; then
+            echo "::warning::could not enable auto-merge on $url; if it has conflicts, resolve them on a branch from stage, otherwise merge it by hand with a merge commit"
+          fi
