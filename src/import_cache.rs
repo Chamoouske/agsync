@@ -45,9 +45,14 @@ fn touch(path: &Path, now: SystemTime) {
     }
 }
 
-/// Time since `path` was last modified.
+/// Time since `path` was last modified; `None` for anything but a regular file, so a
+/// symlink planted in the cache never has its target touched or removed.
 fn age(path: &Path, now: SystemTime) -> Option<Duration> {
-    let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if !meta.file_type().is_file() {
+        return None;
+    }
+    let modified = meta.modified().ok()?;
     now.duration_since(modified).ok()
 }
 
@@ -126,5 +131,25 @@ mod tests {
         set_mtime(&path, SystemTime::now() - 2 * TOUCH_AFTER);
         assert!(load(dir, "u", "s").is_some());
         assert!(mtime(&path) > hour_ago);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_entry_is_never_touched_or_evicted() {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let dir = tmp.path().join("cache");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = tmp.path().join("target.yaml");
+        std::fs::write(&target, YAML).unwrap();
+        let old = SystemTime::now() - 2 * MAX_AGE;
+        set_mtime(&target, old);
+        let before = mtime(&target);
+        let link = entry(&dir, "u", "s");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        load(&dir, "u", "s");
+        assert_eq!(mtime(&target), before);
+        evict(&dir, SystemTime::now());
+        assert!(std::fs::symlink_metadata(&link).is_ok());
+        assert!(target.is_file());
     }
 }
