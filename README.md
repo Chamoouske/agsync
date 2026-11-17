@@ -422,9 +422,20 @@ Risco: o Defender deixa de examinar esse arquivo. Faca isso so depois de conferi
 
 4. Para ajudar a corrigir a deteccao, envie o arquivo como falso positivo em <https://www.microsoft.com/wdsi/filesubmission>.
 
+## Contribuindo: fluxo de branches
+
+O repo publica no maximo uma release por dia, fora hotfixes:
+
+- **Mudanca normal**: crie a branch a partir de `stage` e abra o PR para `stage` (a branch padrao do repo).
+- **Promocao diaria**: o workflow `promote` roda todo dia as 00:00 UTC (21:00 em Brasilia) e tambem pode ser disparado na mao (Actions > promote > Run workflow). Se `stage` tem mudancas que `master` nao tem, ele abre o PR `stage` -> `master` e liga o auto-merge com merge commit. O merge em `master` dispara a release. Sem mudancas, nao faz nada. O agendamento do GitHub pode atrasar alguns minutos.
+- **Hotfix**: crie a branch a partir de `master` e abra o PR direto para `master`. O merge dispara a release na hora.
+- **Volta para `stage`**: a cada push em `master` (promocao, hotfix ou PR de manifests), o workflow `sync-stage` abre o PR `master` -> `stage` com auto-merge, para `stage` sempre conter `master`. Se esse PR tiver conflito, ele fica aberto: resolva numa branch a partir de `stage` e faca o merge na mao.
+
+Os PRs `stage` -> `master` e `master` -> `stage` sao sempre mergeados com merge commit, nunca squash ou rebase: o squash juntaria os commits num titulo so e o `scripts/next-version.sh` perderia os `feat`/`fix`, e os dois deixariam `stage` e `master` divergentes.
+
 ## Contribuindo: CI obrigatoria
 
-Toda mudanca entra em `master` por PR. O ruleset `master` do GitHub ([`.github/rulesets/master.json`](.github/rulesets/master.json)) exige:
+Toda mudanca entra em `stage` ou `master` por PR. O ruleset `stage` ([`.github/rulesets/stage.json`](.github/rulesets/stage.json)) e o ruleset `master` ([`.github/rulesets/master.json`](.github/rulesets/master.json)) exigem os mesmos checks e proibem push direto, force push e remocao. So o `master` exige a branch do PR atualizada antes do merge; o `stage` nao, para o PR `master` -> `stage` poder ser mergeado. O ruleset `master` exige:
 
 - os checks `check (ubuntu-latest)` e `check (windows-latest)` do workflow `ci` (`cargo fmt --check`, `cargo clippy -D warnings` e `cargo test`), vindos do GitHub Actions;
 - a branch do PR atualizada com `master` antes do merge;
@@ -438,9 +449,11 @@ Admins do repo podem editar ou desativar o ruleset em Settings > Rules. Para rea
 gh api -X PUT repos/Chamoouske/agsync/rulesets/27269112 --input .github/rulesets/master.json
 ```
 
+O ruleset `stage` e criado uma vez com `gh api -X POST repos/Chamoouske/agsync/rulesets --input .github/rulesets/stage.json`; depois, reaplique com `-X PUT` no id que esse comando devolver.
+
 ## Publicacao de releases
 
-Cada push em `master` (fora `*.md`, `docs/`, `LICENSE*` e `packaging/`) roda o workflow `release`:
+Cada push em `master` (fora `*.md`, `docs/`, `LICENSE*` e `packaging/`) roda o workflow `release`. Esses pushes vem da promocao diaria de `stage` ou de um hotfix (veja "Contribuindo: fluxo de branches"):
 
 1. `ci` e os builds de Windows e Linux; a versao sai dos Conventional Commits desde a ultima tag (`scripts/next-version.sh`).
 2. O job `publish` gera o `SHA256SUMS` dos binarios e publica a release `v<versao>` como `latest` (`make_latest`), com os binarios e o `SHA256SUMS`, e confere que `releases/latest` e essa tag. A release nao depende dos manifests.
@@ -455,7 +468,7 @@ O workflow `ci` tambem tem o job `manifests`: passa o `actionlint` nos workflows
 
 Configuracao externa:
 
-- Secret `RELEASE_PR_TOKEN`: token (fine-grained, com Contents e Pull requests de escrita neste repo) usado para abrir o PR de manifests. Sem ele o job usa o `GITHUB_TOKEN`, e o GitHub nao roda o `ci` em PR aberto por esse token, entao os checks obrigatorios ficam pendentes; feche e reabra o PR ou faca um push nele para rodar o CI, senao o auto-merge nunca acontece. Sem o secret, abrir o PR tambem exige Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests"; se nem isso estiver ligado, o job deixa um aviso com o link para abrir o PR na mao.
+- Secret `RELEASE_PR_TOKEN`: token (fine-grained, com Contents e Pull requests de escrita neste repo) usado para abrir o PR de manifests e os PRs dos workflows `promote` e `sync-stage`. O `promote` falha sem ele, porque um merge feito com o `GITHUB_TOKEN` nao dispara o workflow `release`. Sem ele o job usa o `GITHUB_TOKEN`, e o GitHub nao roda o `ci` em PR aberto por esse token, entao os checks obrigatorios ficam pendentes; feche e reabra o PR ou faca um push nele para rodar o CI, senao o auto-merge nunca acontece. Sem o secret, abrir o PR tambem exige Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests"; se nem isso estiver ligado, o job deixa um aviso com o link para abrir o PR na mao.
 - Settings > General > "Allow auto-merge" ligado. Sem isso o PR de manifests e aberto, mas o merge fica manual.
 - Secret `WINGET_TOKEN` (so usado com `WINGET_SUBMIT=true`): token classic com o escopo `public_repo` de uma conta que pode fazer fork de `microsoft/winget-pkgs`; o `wingetcreate` abre o PR a partir desse fork. Sem o secret, o job `winget` deixa um aviso e nao envia nada; envie `packaging/winget` na mao com `wingetcreate submit`. O PR em `microsoft/winget-pkgs` ainda passa pela validacao e revisao de la; `winget install` so encontra a versao nova depois do merge.
 
