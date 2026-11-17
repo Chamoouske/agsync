@@ -148,11 +148,17 @@ pub fn read_manifest(snapshot: &Snapshot) -> anyhow::Result<Manifest> {
 }
 
 impl Report {
-    /// Resolves the remote commit, snapshots it and plans each agent.
+    /// Resolves the remote commit, takes its snapshot from the cache (checked out on a
+    /// miss) and plans each agent.
     pub fn build(adopt: bool) -> anyhow::Result<Report> {
         let inputs = Inputs::load()?;
         let remote = git::resolve(&inputs.machine.repo, &inputs.machine.git_ref)?;
-        let snapshot = Snapshot::fetch(&inputs.machine.repo, &inputs.machine.git_ref, &remote)?;
+        let snapshot = Snapshot::cached(
+            &inputs.dirs.snapshot_cache(),
+            &inputs.machine.repo,
+            &inputs.machine.git_ref,
+            &remote,
+        )?;
         let manifest = read_manifest(&snapshot)?;
         Report::plan(inputs, remote, snapshot, manifest, adopt)
     }
