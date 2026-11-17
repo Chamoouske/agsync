@@ -275,6 +275,83 @@ fn update_at_the_latest_version_does_nothing() {
     );
 }
 
+fn stale_update_file(env: &Env) {
+    let text = "{\"version\": \"99.0.0\", \"notified\": true}";
+    std::fs::write(env.data.join("update.json"), text).unwrap();
+}
+
+#[test]
+fn the_current_version_as_latest_clears_update_json() {
+    let mut env = setup();
+    let repo = releases(&env, "releases", &["v0.0.1", &format!("v{CURRENT}")]);
+    use_releases(&mut env, &repo);
+
+    stale_update_file(&env);
+    env.ok(&["check"]);
+    assert!(!env.data.join("update.json").exists(), "check kept it");
+
+    stale_update_file(&env);
+    env.ok(&["update", "--yes"]);
+    assert!(!env.data.join("update.json").exists(), "update kept it");
+    assert!(update_notices(&env).is_empty());
+}
+
+#[test]
+fn release_repo_without_version_tags_records_nothing() {
+    let mut env = setup();
+    let repo = releases(&env, "releases", &["nightly", "v1.2", "release-9.9.9"]);
+    use_releases(&mut env, &repo);
+    env.ok(&["check"]);
+    assert!(!env.data.join("update.json").exists());
+    assert!(
+        env.check_log().contains("nenhuma tag vX.Y.Z"),
+        "{}",
+        env.check_log()
+    );
+    assert!(env.pending().is_some(), "config check did not run");
+}
+
+#[test]
+fn corrupt_update_json_is_ignored_by_hook_and_doctor() {
+    let env = setup();
+    for text in [
+        "{not json",
+        "{\"version\": 7}",
+        "{\"version\": \"99.x.0\"}",
+        "",
+    ] {
+        std::fs::write(env.data.join("update.json"), text).unwrap();
+        let out = env.ok(&["hook"]);
+        assert!(!out.contains("disponivel"), "{text}: {out}");
+        let (_, doctor) = env.agsync(&["doctor"]);
+        assert!(!doctor.contains("disponivel"), "{text}: {doctor}");
+        assert!(!doctor.contains("panicked"), "{text}: {doctor}");
+    }
+}
+
+#[test]
+fn sha256sums_without_the_asset_changes_nothing() {
+    let mut env = setup();
+    let exe = agsync_copy(&env);
+    let before = std::fs::read(&exe).unwrap();
+    publish(&mut env, "99.0.0", b"x", &agsync::hash::hash_bytes(b"x"));
+    let sums = env
+        .root
+        .path()
+        .join("release-files/download/v99.0.0/SHA256SUMS");
+    let other = format!("{}  agsync.json\n", "a".repeat(64));
+    std::fs::write(sums, other).unwrap();
+
+    let (ok, out) = run(&env, &exe, &["update", "--yes"]);
+    assert!(!ok, "{out}");
+    assert!(
+        out.contains(&format!("SHA256SUMS nao tem {ASSET}")),
+        "{out}"
+    );
+    assert_eq!(std::fs::read(&exe).unwrap(), before);
+    assert_eq!(names(exe.parent().unwrap()).len(), 1);
+}
+
 #[test]
 fn update_swaps_in_the_checked_binary() {
     let mut env = setup();
@@ -300,6 +377,9 @@ fn update_swaps_in_the_checked_binary() {
     };
     assert_eq!(names(exe.parent().unwrap()), expected);
     assert!(run(&env, &exe, &["--version"]).0);
+    let (ok, hook) = run(&env, &exe, &["hook"]);
+    assert!(ok, "{hook}");
+    assert!(!hook.contains("disponivel"), "{hook}");
 }
 
 #[test]
