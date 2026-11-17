@@ -57,6 +57,9 @@ impl fmt::Display for Version {
 #[derive(Serialize, Deserialize)]
 struct Saved {
     version: String,
+    /// False while no notification for `version` was shown; the next check retries.
+    #[serde(default)]
+    notified: bool,
 }
 
 /// Highest `vX.Y.Z` tag of the release repo.
@@ -86,7 +89,7 @@ fn highest_tag(ls_remote: &str) -> Option<Version> {
 }
 
 /// Run by `agsync check`: records or clears `update.json` and notifies a new version
-/// once. Never fails; the returned text goes to `check.log`.
+/// until one notification is shown. Never fails; the returned text goes to `check.log`.
 pub fn refresh(dirs: &Dirs) -> String {
     let latest = match latest() {
         Ok(version) => version,
@@ -102,29 +105,37 @@ fn record(dirs: &Dirs, latest: Version) -> anyhow::Result<String> {
         return Ok(format!("agsync {current} e a ultima versao"));
     }
     let file = dirs.update_file();
-    if saved(&file) == Some(latest) {
+    let notified = load(&file).is_some_and(|s| s.notified && s.version == latest.to_string());
+    if notified {
         return Ok(format!("agsync {latest} disponivel (ja avisado)"));
     }
-    let text = serde_json::to_string_pretty(&Saved {
-        version: latest.to_string(),
-    })?;
-    crate::atomic::write_atomic(&file, text.as_bytes())?;
+    save(&file, latest, false)?;
     let message = line(latest);
-    match notify::for_this_machine().notify("agsync", &message) {
-        Ok(()) => Ok(format!("{message} (notificado)")),
-        Err(e) => Ok(format!("{message} (notificacao nao mostrada: {e:#})")),
+    if let Err(e) = notify::for_this_machine().notify("agsync", &message) {
+        return Ok(format!("{message} (notificacao nao mostrada: {e:#})"));
     }
+    save(&file, latest, true)?;
+    Ok(format!("{message} (notificado)"))
+}
+
+fn save(file: &Path, version: Version, notified: bool) -> anyhow::Result<()> {
+    let saved = Saved {
+        version: version.to_string(),
+        notified,
+    };
+    let text = serde_json::to_string_pretty(&saved)?;
+    crate::atomic::write_atomic(file, text.as_bytes())
 }
 
 /// The version in `update.json` while it is newer than this binary.
 pub fn recorded(dirs: &Dirs) -> Option<Version> {
-    saved(&dirs.update_file()).filter(|v| *v > Version::current())
+    let saved = load(&dirs.update_file())?;
+    Version::parse(&saved.version).filter(|v| *v > Version::current())
 }
 
-fn saved(file: &Path) -> Option<Version> {
+fn load(file: &Path) -> Option<Saved> {
     let text = std::fs::read_to_string(file).ok()?;
-    let saved: Saved = serde_json::from_str(&text).ok()?;
-    Version::parse(&saved.version)
+    serde_json::from_str(&text).ok()
 }
 
 /// Deletes `update.json`; a missing file is fine.

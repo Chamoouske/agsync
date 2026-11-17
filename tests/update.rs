@@ -229,3 +229,32 @@ fn update_swaps_in_the_checked_binary() {
     }
     assert!(run(&env, &exe, &["--version"]).0);
 }
+
+#[test]
+fn failed_notification_is_retried_by_the_next_check() {
+    let mut env = setup();
+    let repo = releases(&env, "releases", &["v99.0.0"]);
+    use_releases(&mut env, &repo);
+    let blocked = env.root.path().join("notify-is-a-dir");
+    std::fs::create_dir_all(&blocked).unwrap();
+    env.vars.push((
+        "AGSYNC_TEST_NOTIFY_LOG".to_string(),
+        blocked.to_string_lossy().to_string(),
+    ));
+
+    env.ok(&["check"]);
+    assert!(
+        env.check_log().contains("notificacao nao mostrada"),
+        "{}",
+        env.check_log()
+    );
+    let saved = std::fs::read_to_string(env.data.join("update.json")).unwrap();
+    assert!(saved.contains("\"notified\": false"), "{saved}");
+    assert!(env.ok(&["hook"]).contains("agsync 99.0.0 disponivel"));
+
+    env.vars.retain(|(key, _)| key != "AGSYNC_TEST_NOTIFY_LOG");
+    env.ok(&["check"]);
+    assert_eq!(update_notices(&env).len(), 1);
+    env.ok(&["check"]);
+    assert_eq!(update_notices(&env).len(), 1, "notified twice");
+}
