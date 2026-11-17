@@ -1,6 +1,6 @@
 //! Remote repo access through the system `git` binary.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
@@ -135,10 +135,11 @@ fn network(args: &[&str], cwd: Option<&Path>) -> anyhow::Result<String> {
     git(&all, cwd)
 }
 
-/// Shallow checkout of the config repo in a temp dir, deleted on drop.
+/// Checkout of the config repo: a temp dir deleted on drop, or a cache entry kept.
 #[derive(Debug)]
 pub struct Snapshot {
-    dir: TempDir,
+    dir: Option<TempDir>,
+    path: PathBuf,
     pub commit: String,
 }
 
@@ -148,20 +149,35 @@ impl Snapshot {
         let dir = TempDir::new("agsync-snapshot")?;
         checkout(url, git_ref, sha, dir.path())?;
         Ok(Snapshot {
-            dir,
+            path: dir.path().to_path_buf(),
+            dir: Some(dir),
+            commit: sha.to_string(),
+        })
+    }
+
+    /// Files of `url` at `sha` from the cache in `cache`, checked out only on a miss
+    /// (see [`crate::snapshot_cache`]). Closing it keeps the entry.
+    pub fn cached(cache: &Path, url: &str, git_ref: &str, sha: &str) -> anyhow::Result<Snapshot> {
+        refuse_option(url, git_ref)?;
+        let path = crate::snapshot_cache::open(cache, url, git_ref, sha)?;
+        Ok(Snapshot {
+            dir: None,
+            path,
             commit: sha.to_string(),
         })
     }
 
     pub fn path(&self) -> &Path {
-        self.dir.path()
+        &self.path
     }
 
-    /// Deletes the snapshot, reporting failure.
+    /// Deletes a temp snapshot, reporting failure; a cached one stays.
     pub fn close(self) -> anyhow::Result<()> {
-        let path = self.dir.path().display().to_string();
-        self.dir
-            .close()
+        let Some(dir) = self.dir else {
+            return Ok(());
+        };
+        let path = self.path.display().to_string();
+        dir.close()
             .with_context(|| format!("apagar snapshot {path}"))
     }
 }
@@ -259,6 +275,25 @@ mod tests {
     }
 
     #[test]
+    fn cached_snapshot_survives_close() {
+        let (remote, url, _first, head) = remote_with_two_commits();
+        let cache = remote.path().join(".cache");
+        let snap = Snapshot::cached(&cache, &url, "main", &head).unwrap();
+        assert_eq!(snap.commit, head);
+        let path = snap.path().to_path_buf();
+        snap.close().unwrap();
+        let text = std::fs::read_to_string(path.join("agsync.yaml")).unwrap();
+        assert_eq!(
+            text,
+            "version: 1
+profiles: []
+"
+        );
+        let again = Snapshot::cached(&cache, &url, "main", &head).unwrap();
+        assert_eq!(again.path(), path);
+    }
+
+    #[test]
     fn git_runs_without_credential_prompts() {
         let seen = git(
             &[
@@ -285,6 +320,7 @@ mod tests {
             ls_remote(&evil, "main").unwrap_err(),
             checkout(&evil, "main", &full, &tmp.path().join("co")).unwrap_err(),
             Snapshot::fetch(&evil, "main", &full).unwrap_err(),
+            Snapshot::cached(&tmp.path().join("cache"), &evil, "main", &full).unwrap_err(),
             resolve("https://x/r.git", "--upload-pack=x").unwrap_err(),
         ];
         for e in errors {
@@ -292,6 +328,7 @@ mod tests {
         }
         assert!(!mark.exists());
         assert!(!tmp.path().join("co").exists());
+        assert!(!tmp.path().join("cache").exists());
     }
 
     #[test]
