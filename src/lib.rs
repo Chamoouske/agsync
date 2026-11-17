@@ -17,6 +17,7 @@ pub mod git;
 pub mod hash;
 pub mod hook;
 pub mod host;
+pub mod import_cache;
 pub mod init;
 pub mod legacy;
 pub mod lock;
