@@ -66,8 +66,10 @@ imports:
     env.ok(&["init", &url, "--profile", "work"]);
 
     let status = env.ok(&["status"]);
-    assert!(status.contains("mcp team-mcp: adicionar"), "{status}");
-    assert!(status.contains("skill team-skill: adicionar"), "{status}");
+    let mcp = format!("mcp team-mcp: adicionar [stdio: node] (de imports.mcps {team_url}@main)");
+    assert!(status.contains(&mcp), "{status}");
+    let skill = format!("skill team-skill: adicionar (de imports.skills {team_url}@main)");
+    assert!(status.contains(&skill), "{status}");
     assert!(!status.contains("team-test"), "{status}");
     env.ok(&["apply", "--yes"]);
     assert!(env.servers().contains_key("team-mcp"));

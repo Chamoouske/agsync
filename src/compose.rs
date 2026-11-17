@@ -13,7 +13,12 @@ pub struct Composed {
     pub skipped: Vec<String>,
     /// Imports followed by branch or tag, with the commit they resolved to.
     pub watched: Vec<Watched>,
+    /// Import each imported item came from, by kind (`mcp`, `skill`, `plugin`) and name.
+    pub origins: Origins,
 }
+
+/// Import an item came from, as `imports.<kind> <git>@<ref>`, by kind and name.
+pub type Origins = BTreeMap<(&'static str, String), String>;
 
 /// Merges every import selected for `active` into `manifest`. Imports of inactive
 /// profiles are not fetched. Any import that cannot be read fails the whole plan:
@@ -46,11 +51,13 @@ pub fn compose(mut manifest: Manifest, active: &[String]) -> anyhow::Result<Comp
     merge.drop_checkout_clashes(active);
     watched.sort();
     watched.dedup();
+    let origins = merge.origins();
     Ok(Composed {
         manifest: merge.manifest,
         warnings: merge.warnings,
         skipped: merge.skipped,
         watched,
+        origins,
     })
 }
 
@@ -175,6 +182,16 @@ impl Merge {
                 "{origin}: imports do repo importado ignorados (so um nivel)"
             ));
         }
+    }
+
+    fn origins(&self) -> Origins {
+        let mut origins = Origins::new();
+        for (kind, name) in &self.imported {
+            let origin = self.owners.0[&(*kind, name.clone())].clone();
+            let singular = kind.trim_end_matches('s');
+            origins.insert((singular, name.clone()), origin);
+        }
+        origins
     }
 
     /// True when `name` may join from `origin`; warns when an earlier owner keeps it.
@@ -309,12 +326,14 @@ impl Merge {
         }
         for name in drop_skills {
             self.manifest.skills.retain(|s| s.value.name() != name);
+            self.imported.remove(&("skills", name.clone()));
             self.warnings.push(format!(
                 "skill '{name}' importada ignorada: tem o mesmo nome de um mcp com source"
             ));
         }
         for name in drop_mcps {
             self.manifest.mcps.remove(&name);
+            self.imported.remove(&("mcps", name.clone()));
             self.warnings.push(format!(
                 "mcp '{name}' importado ignorado: tem o mesmo nome de uma skill git"
             ));
@@ -474,6 +493,17 @@ imports:
         assert_eq!(c.watched.len(), 2, "{:?}", c.watched);
         assert!(c.watched.iter().all(|w| w.git_ref == "main"));
         assert!(c.manifest.imports.mcps.is_empty());
+
+        let from_a = |kind: &str| format!("imports.{kind} {}@main", a.url);
+        assert_eq!(c.origins[&("mcp", "a1".to_string())], from_a("mcps"));
+        assert_eq!(
+            c.origins[&("mcp", "b1".to_string())],
+            format!("imports.mcps {}@main", b.url)
+        );
+        assert_eq!(c.origins[&("skill", "s1".to_string())], from_a("skills"));
+        assert_eq!(c.origins[&("plugin", "p1".to_string())], from_a("plugins"));
+        assert!(!c.origins.contains_key(&("plugin", "plocal".to_string())));
+        assert_eq!(c.origins.len(), 6, "{:?}", c.origins);
     }
 
     #[test]
@@ -547,6 +577,7 @@ imports:
         );
         let c = compose_yaml(&main, &["work"]).unwrap();
         assert_eq!(command(&c, "m"), "main");
+        assert!(!c.origins.contains_key(&("mcp", "m".to_string())));
         assert_eq!(command(&c, "n"), "a");
         assert_eq!(c.manifest.mcps["n"].value.profiles, None);
         assert_eq!(command(&c, "k"), "a");
@@ -615,6 +646,7 @@ imports:
         );
         let c = compose_yaml(&main, &[]).unwrap();
         assert!(c.manifest.skills.is_empty());
+        assert!(c.origins.is_empty());
         assert!(c.warnings[0].contains("skill 'tool'"), "{:?}", c.warnings);
     }
 
