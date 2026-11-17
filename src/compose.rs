@@ -159,9 +159,25 @@ impl Merge {
         true
     }
 
+    /// An item whose git is a local path only makes sense inside its own repo.
+    fn skip_local(&mut self, kind: &str, name: &str, field: &str, origin: &str) {
+        self.skipped.push(format!(
+            "{kind} {name}: {field} local em {origin} nao vale fora do repo de origem"
+        ));
+    }
+
     fn add_mcps(&mut self, import: &Import, remote: &Manifest, origin: &str) -> Vec<String> {
         for (name, mcp) in &remote.mcps {
-            if import.excludes.contains(name) || !self.claim("mcps", name, origin) {
+            if import.excludes.contains(name) {
+                continue;
+            }
+            if let Some(source) = &mcp.value.source
+                && crate::plugin::is_local_marketplace(&source.git)
+            {
+                self.skip_local("mcp", name, "source.git", origin);
+                continue;
+            }
+            if !self.claim("mcps", name, origin) {
                 continue;
             }
             let mut mcp = mcp.clone();
@@ -180,7 +196,16 @@ impl Merge {
     ) -> Vec<String> {
         for skill in &remote.skills {
             let name = skill.value.name();
-            if import.excludes.contains(&name) || !self.claim("skills", &name, origin) {
+            if import.excludes.contains(&name) {
+                continue;
+            }
+            if let Some(git) = &skill.value.git
+                && crate::plugin::is_local_marketplace(git)
+            {
+                self.skip_local("skill", &name, "git", origin);
+                continue;
+            }
+            if !self.claim("skills", &name, origin) {
                 continue;
             }
             let mut skill = skill.clone();
@@ -203,9 +228,7 @@ impl Merge {
                 continue;
             }
             if crate::plugin::is_local_marketplace(&plugin.value.marketplace.git) {
-                self.skipped.push(format!(
-                    "plugin {name}: marketplace local em {origin} nao vale fora do repo de origem"
-                ));
+                self.skip_local("plugin", &name, "marketplace", origin);
                 continue;
             }
             if !self.claim("plugins", &name, origin) {
@@ -554,6 +577,45 @@ imports:
         let c = compose_yaml(&main, &[]).unwrap();
         assert!(c.manifest.skills.is_empty());
         assert!(c.warnings[0].contains("skill 'tool'"), "{:?}", c.warnings);
+    }
+
+    #[test]
+    fn imported_local_paths_are_skipped() {
+        let a = Repo::new(
+            r#"version: 1
+mcps:
+  built:
+    command: x
+    source: {git: ../tools, ref: v1}
+  remote:
+    command: y
+    source: {git: https://x/t.git, ref: v1}
+skills:
+  - git: /opt/skills
+    ref: v1
+    path: s/local
+  - path: s/own
+"#,
+            &["s/own"],
+        );
+        let main = format!(
+            "version: 1
+imports:
+  mcps:
+    - git: \"{a}\"
+  skills:
+    - git: \"{a}\"
+",
+            a = a.url
+        );
+        let c = compose_yaml(&main, &[]).unwrap();
+        let mcps: Vec<_> = c.manifest.mcps.keys().map(String::as_str).collect();
+        assert_eq!(mcps, ["remote"]);
+        let skills: Vec<_> = c.manifest.skills.iter().map(|s| s.value.name()).collect();
+        assert_eq!(skills, ["own"]);
+        assert_eq!(c.skipped.len(), 2, "{:?}", c.skipped);
+        assert!(c.skipped[0].starts_with("mcp built: source.git local"));
+        assert!(c.skipped[1].starts_with("skill local: git local"));
     }
 
     #[test]
