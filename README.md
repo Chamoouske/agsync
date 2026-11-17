@@ -9,7 +9,11 @@ O agsync aplica MCP servers, skills e plugins de um repositorio git de configura
 
 ## Instalacao
 
-Windows (PowerShell, sem admin). Instala em `%LOCALAPPDATA%\agsync\bin` e poe essa pasta no PATH do usuario:
+Requisito: `git` no PATH.
+
+### Windows
+
+PowerShell, sem admin. Instala em `%LOCALAPPDATA%\agsync\bin` e poe essa pasta no PATH do usuario:
 
 ```powershell
 irm https://raw.githubusercontent.com/Chamoouske/agsync/master/install.ps1 | iex
@@ -23,7 +27,9 @@ Uma versao especifica:
 
 Nao use `-ExecutionPolicy Bypass`. O `irm ... | iex` roda sem mudar a politica de execucao, e o Defender costuma marcar justamente essa linha como suspeita. Se algo der errado, veja [Microsoft Defender e SmartScreen](#microsoft-defender-e-smartscreen).
 
-Via Scoop, pelo manifest anexado a ultima release (o mesmo de `packaging/scoop`, que nao esta no formato de bucket, entao o Scoop instala direto pela URL):
+### Scoop
+
+Pelo manifest anexado a ultima release (o mesmo de `packaging/scoop`, que nao esta no formato de bucket, entao o Scoop instala direto pela URL):
 
 ```powershell
 scoop install https://github.com/Chamoouske/agsync/releases/latest/download/agsync.json
@@ -31,24 +37,45 @@ scoop install https://github.com/Chamoouske/agsync/releases/latest/download/agsy
 
 O manifest de `master` (`https://raw.githubusercontent.com/Chamoouske/agsync/master/packaging/scoop/agsync.json`) tambem funciona, mas so aponta para a versao nova depois do merge do PR de manifests (veja [Publicacao de releases](#publicacao-de-releases)).
 
-O manifest do Winget esta em `packaging/winget`, pronto para um PR em `microsoft/winget-pkgs`. Enquanto esse PR nao for aceito, `winget install` nao encontra o agsync.
+### WinGet
 
-Linux (x86_64, binario estatico). Instala em `~/.local/bin` e, se preciso, poe essa pasta no PATH pelo `~/.profile` e pelo `~/.bashrc`/`~/.zshrc` que existirem:
+Depois que o manifest for aceito em `microsoft/winget-pkgs`:
+
+```powershell
+winget install --id Chamoouske.agsync --exact
+winget upgrade --id Chamoouske.agsync --exact
+winget uninstall --id Chamoouske.agsync --exact
+```
+
+O pacote e `portable`: o WinGet baixa o `agsync.exe` da release, confere o SHA256 do manifest e cria o alias `agsync` no PATH.
+
+Enquanto o PR em `microsoft/winget-pkgs` nao for aceito, `winget install --id Chamoouske.agsync` nao encontra o pacote. Da para instalar pelo manifest local de `packaging/winget`, a partir de um clone do repo. Liberar manifest local exige um PowerShell como administrador, uma vez:
+
+```powershell
+winget settings --enable LocalManifestFiles
+winget install --manifest .\packaging\winget
+```
+
+O manifest de `packaging/winget` so aponta para a versao nova depois do merge do PR de manifests (veja [Publicacao de releases](#publicacao-de-releases)).
+
+### Linux
+
+x86_64, binario estatico. Instala em `~/.local/bin` e, se preciso, poe essa pasta no PATH pelo `~/.profile` e pelo `~/.bashrc`/`~/.zshrc` que existirem:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Chamoouske/agsync/master/install.sh | sh
 curl -fsSL https://raw.githubusercontent.com/Chamoouske/agsync/master/install.sh | sh -s -- --version 0.1.0
 ```
 
-Os dois scripts baixam o binario do GitHub Releases e conferem o SHA256 com o `SHA256SUMS` da release. Os binarios nao tem assinatura de codigo.
+Os scripts `install.ps1` e `install.sh` baixam o binario do GitHub Releases e conferem o SHA256 com o `SHA256SUMS` da release. Os binarios nao tem assinatura de codigo.
 
-Alternativa, com Rust instalado:
+### Cargo
+
+Com Rust instalado:
 
 ```sh
 cargo install --git https://github.com/Chamoouske/agsync --tag v0.1.0
 ```
-
-Requisito: `git` no PATH.
 
 ## Primeiro uso
 
@@ -389,12 +416,12 @@ O agsync no WSL e uma instalacao Linux separada. Ele cuida das configs do home L
 
 ## Microsoft Defender e SmartScreen
 
-O binario do Windows nao tem assinatura de codigo, nem metadados de versao, e chama o PowerShell por dentro. Por isso o classificador de aprendizado de maquina do Microsoft Defender pode poe o `agsync.exe` em quarentena (por exemplo, como `Trojan:Win32/Bearfoos.A!ml`) ou o SmartScreen pode avisar sobre um aplicativo desconhecido. E um falso positivo conhecido da v0.1.0, mas confira antes de liberar.
+O binario do Windows nao tem assinatura de codigo, nem metadados de versao, e chama o PowerShell por dentro. Por isso o classificador de aprendizado de maquina do Microsoft Defender pode por o `agsync.exe` em quarentena (por exemplo, como `Trojan:Win32/Bearfoos.A!ml`) ou o SmartScreen pode avisar sobre um aplicativo desconhecido. E um falso positivo conhecido da v0.1.0, mas confira antes de liberar.
 
 1. Confira o SHA256 do arquivo contra o `SHA256SUMS` da release:
 
 ```powershell
-(Get-FileHash "$env:LOCALAPPDATAgsyncingsync.exe" -Algorithm SHA256).Hash.ToLower()
+(Get-FileHash "$env:LOCALAPPDATA\agsync\bin\agsync.exe" -Algorithm SHA256).Hash.ToLower()
 ```
 
 Compare com a linha de `agsync-x86_64-pc-windows-msvc.exe` no `SHA256SUMS` da [release](https://github.com/Chamoouske/agsync/releases). Se o hash for diferente, nao use o arquivo. O `install.ps1` ja faz essa conferencia antes de copiar o binario.
@@ -404,7 +431,7 @@ Compare com a linha de `agsync-x86_64-pc-windows-msvc.exe` no `SHA256SUMS` da [r
 3. Se o Defender voltar a bloquear, exclua so o arquivo, nunca a pasta inteira, em um PowerShell como administrador:
 
 ```powershell
-Add-MpPreference -ExclusionPath "$env:LOCALAPPDATAgsyncingsync.exe"
+Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\agsync\bin\agsync.exe"
 ```
 
 Risco: o Defender deixa de examinar esse arquivo. Faca isso so depois de conferir o SHA256, e remova a exclusao com `Remove-MpPreference -ExclusionPath` se trocar de binario por um que voce nao conferiu.
