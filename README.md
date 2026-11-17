@@ -37,27 +37,6 @@ scoop install https://github.com/Chamoouske/agsync/releases/latest/download/agsy
 
 O manifest de `master` (`https://raw.githubusercontent.com/Chamoouske/agsync/master/packaging/scoop/agsync.json`) tambem funciona, mas so aponta para a versao nova depois do merge do PR de manifests (veja [Publicacao de releases](#publicacao-de-releases)).
 
-### WinGet
-
-Cada release envia o manifest de `packaging/winget` como PR para `microsoft/winget-pkgs` (veja [Publicacao de releases](#publicacao-de-releases)). Depois que ele for aceito:
-
-```powershell
-winget install --id Chamoouske.agsync --exact
-winget upgrade --id Chamoouske.agsync --exact
-winget uninstall --id Chamoouske.agsync --exact
-```
-
-O pacote e `portable`: o WinGet baixa o `agsync.exe` da release, confere o SHA256 do manifest e cria o alias `agsync` no PATH.
-
-Enquanto o PR em `microsoft/winget-pkgs` nao for aceito, `winget install --id Chamoouske.agsync` nao encontra o pacote. Da para instalar pelo manifest local de `packaging/winget`, a partir de um clone do repo. Liberar manifest local exige um PowerShell como administrador, uma vez:
-
-```powershell
-winget settings --enable LocalManifestFiles
-winget install --manifest .\packaging\winget
-```
-
-O manifest de `packaging/winget` so aponta para a versao nova depois do merge do PR de manifests (veja [Publicacao de releases](#publicacao-de-releases)).
-
 ### Linux
 
 x86_64, binario estatico. Instala em `~/.local/bin` e, se preciso, poe essa pasta no PATH pelo `~/.profile` e pelo `~/.bashrc`/`~/.zshrc` que existirem:
@@ -463,7 +442,7 @@ Cada push em `master` (fora `*.md`, `docs/`, `LICENSE*` e `packaging/`) roda o w
 3. O job `manifests` baixa o `SHA256SUMS` da release e roda `scripts/update-manifests.sh <versao> dist/SHA256SUMS`, que reescreve versao, URL e hash em `packaging/scoop/agsync.json` e nos tres arquivos de `packaging/winget` (o hash do WinGet em maiusculas, o `autoupdate` do Scoop intacto).
 4. Antes de publicar qualquer manifest, `scripts/check-manifests.sh dist/SHA256SUMS` confere que os quatro arquivos tem a mesma versao, o `PackageIdentifier` `Chamoouske.agsync`, as URLs da tag `v<versao>` e o hash do `SHA256SUMS`; `scripts/check-manifests.sh --remote` baixa o binario publicado e compara o hash; `scripts/validate-manifest-schemas.sh` valida contra o schema do Scoop e os schemas 1.6.0 do WinGet.
 5. Validados, o `agsync.json` do Scoop e anexado a release (`gh release upload --clobber`), e os manifests vao para a branch `release/manifests-v<versao>` com um PR para `master`, e o job liga o auto-merge (squash, apagando a branch) nesse PR: o GitHub faz o merge sozinho quando os checks obrigatorios do ruleset do `master` passarem. Se nao conseguir ligar o auto-merge, o job deixa um aviso e o PR fica aberto para merge na mao. O merge desse PR nao dispara outra release, porque `packaging/` esta no `paths-ignore`.
-6. O job `winget` envia os arquivos de `packaging/winget` para `microsoft/winget-pkgs` com `wingetcreate submit`. Se a versao ja existe la, nao faz nada.
+6. O job `winget` esta desligado: o agsync nao e distribuido pelo WinGet. Ele so roda com a variavel de repositorio `WINGET_SUBMIT` igual a `true` (Settings > Secrets and variables > Actions > Variables) e, nesse caso, envia os arquivos de `packaging/winget` para `microsoft/winget-pkgs` com `wingetcreate submit`; se a versao ja existe la, nao faz nada. Os arquivos de `packaging/winget` continuam sendo atualizados e validados a cada release, para o job poder ser religado sem retrabalho.
 
 Falhas nos manifests: os jobs `manifests` e `winget` rodam depois da release, entao uma falha neles nao desfaz nem bloqueia a release. O job que falhou fica vermelho no run e deixa um erro `release v<versao> is published, but ...` dizendo o que nao foi atualizado. Para tratar, corrija a causa e use "Re-run failed jobs" no run; os dois jobs podem rodar de novo (o anexo usa `--clobber`, a branch e reenviada e o PR existente e reaproveitado). Ate isso, `releases/latest/download/agsync.json` nao existe na release nova.
 
@@ -473,7 +452,7 @@ Configuracao externa:
 
 - Secret `RELEASE_PR_TOKEN`: token (fine-grained, com Contents e Pull requests de escrita neste repo) usado para abrir o PR de manifests. Sem ele o job usa o `GITHUB_TOKEN`, e o GitHub nao roda o `ci` em PR aberto por esse token, entao os checks obrigatorios ficam pendentes; feche e reabra o PR ou faca um push nele para rodar o CI, senao o auto-merge nunca acontece. Sem o secret, abrir o PR tambem exige Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests"; se nem isso estiver ligado, o job deixa um aviso com o link para abrir o PR na mao.
 - Settings > General > "Allow auto-merge" ligado. Sem isso o PR de manifests e aberto, mas o merge fica manual.
-- Secret `WINGET_TOKEN`: token classic com o escopo `public_repo` de uma conta que pode fazer fork de `microsoft/winget-pkgs`; o `wingetcreate` abre o PR a partir desse fork. Sem o secret, o job `winget` deixa um aviso e nao envia nada; envie `packaging/winget` na mao com `wingetcreate submit`. O PR em `microsoft/winget-pkgs` ainda passa pela validacao e revisao de la; `winget install` so encontra a versao nova depois do merge.
+- Secret `WINGET_TOKEN` (so usado com `WINGET_SUBMIT=true`): token classic com o escopo `public_repo` de uma conta que pode fazer fork de `microsoft/winget-pkgs`; o `wingetcreate` abre o PR a partir desse fork. Sem o secret, o job `winget` deixa um aviso e nao envia nada; envie `packaging/winget` na mao com `wingetcreate submit`. O PR em `microsoft/winget-pkgs` ainda passa pela validacao e revisao de la; `winget install` so encontra a versao nova depois do merge.
 
 ## Migracao a partir do agent-config
 
