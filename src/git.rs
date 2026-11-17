@@ -19,6 +19,7 @@ pub fn is_short_sha(text: &str) -> bool {
 
 /// Commit SHA for `git_ref`: a full SHA is returned as is, else asked to `git ls-remote`.
 pub fn resolve(url: &str, git_ref: &str) -> anyhow::Result<String> {
+    refuse_option(url, git_ref)?;
     if is_full_sha(git_ref) {
         return Ok(git_ref.to_lowercase());
     }
@@ -30,8 +31,10 @@ pub fn resolve(url: &str, git_ref: &str) -> anyhow::Result<String> {
 
 /// Commit SHA that `git_ref` (branch or tag) points to on the remote.
 pub fn ls_remote(url: &str, git_ref: &str) -> anyhow::Result<String> {
+    refuse_option(url, git_ref)?;
     let peeled = format!("{git_ref}^{{}}");
-    let out = git(&["ls-remote", url, git_ref, &peeled], None)?;
+    let args = ["ls-remote", "--end-of-options", url, git_ref, &peeled];
+    let out = network(&args, None)?;
     let mut fallback = None;
     for line in out.lines() {
         let Some((sha, name)) = line.split_once('\t') else {
@@ -50,6 +53,7 @@ pub fn ls_remote(url: &str, git_ref: &str) -> anyhow::Result<String> {
 /// Fetches the SHA directly. If the server refuses that, clones `git_ref` shallowly
 /// and checks that it still points to `sha`.
 pub fn checkout(url: &str, git_ref: &str, sha: &str, dest: &Path) -> anyhow::Result<()> {
+    refuse_option(url, git_ref)?;
     std::fs::create_dir_all(dest).with_context(|| format!("criar {}", dest.display()))?;
     let fetched = fetch_sha(url, sha, dest);
     if fetched.is_ok() {
@@ -65,17 +69,24 @@ pub fn checkout(url: &str, git_ref: &str, sha: &str, dest: &Path) -> anyhow::Res
 fn fetch_sha(url: &str, sha: &str, dest: &Path) -> anyhow::Result<()> {
     git(&["init", "-q"], Some(dest))?;
     git(&["config", "core.autocrlf", "false"], Some(dest))?;
-    git(
-        &["fetch", "-q", "--depth", "1", "--no-tags", url, sha],
-        Some(dest),
-    )?;
+    let args = [
+        "fetch",
+        "-q",
+        "--depth",
+        "1",
+        "--no-tags",
+        "--end-of-options",
+        url,
+        sha,
+    ];
+    network(&args, Some(dest))?;
     git(&["checkout", "-q", "FETCH_HEAD"], Some(dest))?;
     Ok(())
 }
 
 fn clone_ref(url: &str, git_ref: &str, sha: &str, dest: &Path) -> anyhow::Result<()> {
     let dest_text = dest.to_string_lossy().to_string();
-    git(
+    network(
         &[
             "-c",
             "core.autocrlf=false",
@@ -89,6 +100,7 @@ fn clone_ref(url: &str, git_ref: &str, sha: &str, dest: &Path) -> anyhow::Result
             "core.autocrlf=false",
             "--branch",
             git_ref,
+            "--end-of-options",
             url,
             &dest_text,
         ],
@@ -101,6 +113,26 @@ fn clone_ref(url: &str, git_ref: &str, sha: &str, dest: &Path) -> anyhow::Result
         );
     }
     Ok(())
+}
+
+/// Refuses a url or ref that `git` would read as an option (`--upload-pack=...`
+/// runs a command).
+fn refuse_option(url: &str, git_ref: &str) -> anyhow::Result<()> {
+    if url.starts_with('-') {
+        anyhow::bail!("url git '{url}' comeca com -; recusada");
+    }
+    if git_ref.starts_with('-') {
+        anyhow::bail!("ref '{git_ref}' comeca com -; recusada");
+    }
+    Ok(())
+}
+
+/// [`git`] for commands that reach a remote: the `ext::` transport, which runs a
+/// command, stays off whatever the user's git config says.
+fn network(args: &[&str], cwd: Option<&Path>) -> anyhow::Result<String> {
+    let mut all = vec!["-c", "protocol.ext.allow=never"];
+    all.extend_from_slice(args);
+    git(&all, cwd)
 }
 
 /// Shallow checkout of the config repo in a temp dir, deleted on drop.
@@ -152,9 +184,12 @@ pub fn git(args: &[&str], cwd: Option<&Path>) -> anyhow::Result<String> {
     }
     let out = cmd.output().context("executar git (esta no PATH?)")?;
     if !out.status.success() {
+        let command = args
+            .iter()
+            .find(|a| !a.starts_with('-') && !a.contains('='))
+            .unwrap_or(&"");
         anyhow::bail!(
-            "git {} falhou: {}",
-            args.first().unwrap_or(&""),
+            "git {command} falhou: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
@@ -235,6 +270,53 @@ mod tests {
         )
         .unwrap();
         assert_eq!(seen.trim(), "0 never");
+    }
+
+    #[test]
+    fn refuses_url_or_ref_read_as_option() {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let mark = tmp.path().join("ran");
+        let mark_text = mark.to_string_lossy().replace('\\', "/");
+        let evil = format!("--upload-pack=touch '{mark_text}'");
+        let full = "a".repeat(40);
+        let errors = [
+            resolve(&evil, "main").unwrap_err(),
+            resolve(&evil, &full).unwrap_err(),
+            ls_remote(&evil, "main").unwrap_err(),
+            checkout(&evil, "main", &full, &tmp.path().join("co")).unwrap_err(),
+            Snapshot::fetch(&evil, "main", &full).unwrap_err(),
+            resolve("https://x/r.git", "--upload-pack=x").unwrap_err(),
+        ];
+        for e in errors {
+            assert!(e.to_string().contains("comeca com -"), "{e}");
+        }
+        assert!(!mark.exists());
+        assert!(!tmp.path().join("co").exists());
+    }
+
+    #[test]
+    fn options_after_end_of_options_are_urls() {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let mark = tmp.path().join("ran");
+        let mark_text = mark.to_string_lossy().replace('\\', "/");
+        let evil = format!("--upload-pack=touch '{mark_text}'");
+        let args = ["ls-remote", "--end-of-options", &evil, "main"];
+        assert!(network(&args, Some(tmp.path())).is_err());
+        assert!(!mark.exists());
+    }
+
+    #[test]
+    fn network_calls_turn_off_the_ext_transport() {
+        let seen = network(
+            &[
+                "-c",
+                "alias.agsyncext=!git config protocol.ext.allow",
+                "agsyncext",
+            ],
+            None,
+        )
+        .unwrap();
+        assert_eq!(seen.trim(), "never");
     }
 
     #[test]
