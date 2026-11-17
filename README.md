@@ -1,6 +1,6 @@
 # agsync
 
-O agsync aplica MCP servers e skills de um repositorio git de configuracao (o `agsync.yaml`) na configuracao de usuario dos agentes de codigo da maquina: Claude Code, Codex, OpenCode e Hermes.
+O agsync aplica MCP servers, skills e plugins de um repositorio git de configuracao (o `agsync.yaml`) na configuracao de usuario dos agentes de codigo da maquina: Claude Code, Codex, OpenCode e Hermes. O repo de config pode importar itens de outros repos, por perfil.
 
 - So mexe no que ele mesmo escreveu. Isso fica registrado em `state.json`. Entradas manuais com o mesmo nome viram conflito e ficam como estao, a nao ser com `--adopt`.
 - Escreve pelo CLI do agente quando o CLI sabe fazer a mudanca. Senao, edita o arquivo preservando comentarios.
@@ -132,6 +132,12 @@ plugins:
     marketplace:
       git: https://gitlab.example.com/group/marketplace.git
       ref: v1.4.0
+
+imports:
+  skills:
+    - git: https://github.com/<org>/skills-personal
+      ref: main
+      profiles: [personal]
 ```
 
 Campos:
@@ -160,6 +166,7 @@ Campos:
   - `profiles` e `agents`: como nos MCPs.
   - Credenciais ficam no credential helper do git. URL com senha ou token embutido e recusada.
   - Veja [Plugins](#plugins) para o suporte de cada agente.
+- `imports`: opcional. Traz MCPs, skills ou plugins do `agsync.yaml` de outros repos. Veja [Composicao entre repositorios](#composicao-entre-repositorios).
 - `${VAR}`: aceito em `command`, `args`, `env`, `url` e `headers`. Veja [Segredos](#segredos).
 
 Uma fonte em branch ou tag e seguida: um commit novo nela tambem aparece no `check`.
@@ -228,6 +235,67 @@ Um `${VAR}` e resolvido primeiro pelo ambiente do processo e depois pelo `secret
 - Cada maquina escolhe os seus no `init` (`--profile work --profile personal`). Eles ficam no `machine.toml`.
 - Um item com `profiles` so vale nas maquinas com um desses perfis ativos. Um item sem `profiles` vale em todas.
 - Um item que sai do perfil ativo sai dos agentes no proximo `apply`.
+
+## Composicao entre repositorios
+
+O campo `imports` do `agsync.yaml` junta itens de outros repos de config ao repo principal. Cada import pode valer so em alguns perfis.
+
+```yaml
+imports:
+  mcps:
+    - git: https://github.com/<org>/mcps-work
+      ref: main
+      profiles: [work]
+      excludes: [mcp-test]
+  skills:
+    - git: https://github.com/<org>/skills-personal
+      ref: 8f3a2c1e5b7d9f0a1c3e5b7d9f0a1c3e5b7d9f0a
+      profiles: [personal]
+      excludes: [tdd]
+  plugins:
+    - git: https://github.com/<org>/plugins-work
+      ref: v1.2.0
+      profiles: [work]
+      excludes: [plugin-test]
+```
+
+Cada entrada importa so um tipo (`mcps`, `skills` ou `plugins`) do `agsync.yaml` na raiz do repo referenciado. O mesmo repo pode aparecer em mais de um tipo.
+
+Campos:
+
+- `git`: obrigatorio. URL com senha ou token embutido e recusada; credenciais ficam no credential helper do git.
+- `ref`: branch, tag ou SHA completo; SHA abreviado e recusado.
+  - Sem `ref`, vale `main`, o mesmo padrao do `agsync init`.
+  - O conteudo importado e exatamente o do commit para onde o `ref` aponta.
+  - Ref por branch ou tag e seguido: um commit novo no repo importado aparece no `check`.
+- `profiles`: o import so vale nas maquinas com um desses perfis ativos. Sem `profiles`, vale em todas.
+  - Import de perfil inativo nem e acessado na rede.
+  - Os itens importados assumem os `profiles` da entrada de import. Os `profiles` declarados nos itens do repo importado sao ignorados.
+  - Os `agents` dos itens importados sao mantidos.
+- `excludes`: nomes de recursos daquele tipo, daquela origem, que nao entram.
+  - Nao afeta recurso de mesmo nome do repo principal nem de outro import.
+  - Nome que nao existe na origem gera aviso.
+
+O que vem do repo importado:
+
+- Skill em pasta local do repo importado e baixada do proprio repo importado, no commit resolvido.
+- Plugin com marketplace em pasta local e pulado e aparece nos pulados.
+- So um nivel: os `imports` do repo importado nao sao seguidos, com aviso.
+- `silentUpdate` e `profiles` do repo importado sao ignorados.
+
+Conflito de nomes (mesmo tipo, entre itens ativos na maquina):
+
+- O repo principal vence qualquer import.
+- Entre imports, vence o declarado primeiro em `imports.<tipo>`.
+- O perdedor e descartado com aviso nomeando as duas origens.
+- Item do principal de perfil inativo nao conflita.
+- Exemplo: o perfil `personal` importa a skill `tdd` de um repo e o `work` importa `tdd` de outro. Numa maquina so com `personal` nao ha conflito. Com os dois perfis ativos, vence o import declarado primeiro.
+
+Erros:
+
+- Repo inacessivel, ref inexistente ou `agsync.yaml` ausente ou invalido no repo importado fazem `status`, `diff`, `apply` e `check` falharem.
+- A mensagem nomeia o tipo, o `git` e o `ref` do import.
+- Nesse caso nada e aplicado nem removido.
 
 ## Agentes
 
