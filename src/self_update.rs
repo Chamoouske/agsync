@@ -15,7 +15,6 @@ use crate::update::{self, Version};
 const INSTALL_BASE_URL: &str = "https://github.com/Chamoouske/agsync/releases";
 
 /// README section on Defender and SmartScreen blocking the Windows binary.
-#[cfg(windows)]
 const DEFENDER_GUIDE: &str =
     "https://github.com/Chamoouske/agsync#microsoft-defender-e-smartscreen";
 
@@ -102,8 +101,9 @@ fn scoop_update(dirs: &Dirs) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-/// Downloads and checks the release, swaps it in for `exe` and runs it once. A
-/// `<exe>.old` left by the last Windows update is deleted first, if it can be.
+/// Downloads and checks the release, swaps it in for `exe` and runs it once; when it
+/// does not run, `<exe>.old` goes back in place. On Windows `<exe>.old` is the running
+/// binary and stays until the next update deletes it, if it can.
 fn install(exe: &Path, version: Version, asset: &str) -> anyhow::Result<()> {
     let dir = exe.parent().context("pasta do agsync")?;
     let name = exe.file_name().context("nome do agsync")?.to_string_lossy();
@@ -116,10 +116,13 @@ fn install(exe: &Path, version: Version, asset: &str) -> anyhow::Result<()> {
         std::fs::remove_file(&new).ok();
         return Err(e);
     }
-    if runs(exe) {
-        return Ok(());
+    if !runs(exe) {
+        return restore(exe, &old);
     }
-    restore(exe, &old)
+    if !cfg!(windows) {
+        std::fs::remove_file(&old).ok();
+    }
+    Ok(())
 }
 
 /// Writes `bytes` to `path`, which must not exist yet; a partial file is deleted.
@@ -228,14 +231,21 @@ fn swap(exe: &Path, new: &Path, old: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Atomic rename over the running binary, after `chmod 0755`.
+/// Keeps `exe` as `old` (hard link, else copy), then renames `new` over it
+/// atomically, after `chmod 0755`.
 #[cfg(not(windows))]
-fn swap(exe: &Path, new: &Path, _old: &Path) -> anyhow::Result<()> {
+fn swap(exe: &Path, new: &Path, old: &Path) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let mode = std::fs::Permissions::from_mode(0o755);
     std::fs::set_permissions(new, mode).with_context(|| format!("chmod {}", new.display()))?;
-    std::fs::rename(new, exe)
-        .with_context(|| format!("mover {} para {}", new.display(), exe.display()))
+    if std::fs::hard_link(exe, old).is_err() {
+        std::fs::copy(exe, old).with_context(|| format!("copiar {}", exe.display()))?;
+    }
+    if let Err(e) = std::fs::rename(new, exe) {
+        std::fs::remove_file(old).ok();
+        return Err(e).with_context(|| format!("mover {} para {}", new.display(), exe.display()));
+    }
+    Ok(())
 }
 
 fn runs(exe: &Path) -> bool {
@@ -249,23 +259,25 @@ fn runs(exe: &Path) -> bool {
 }
 
 /// Puts `old` back in place of the new `exe` that did not run.
-#[cfg(windows)]
 fn restore(exe: &Path, old: &Path) -> anyhow::Result<()> {
-    std::fs::remove_file(exe).ok();
-    let back = std::fs::rename(old, exe);
-    let state = match back {
+    if cfg!(windows) {
+        std::fs::remove_file(exe).ok();
+    }
+    let state = match std::fs::rename(old, exe) {
         Ok(()) => "a versao anterior foi restaurada".to_string(),
         Err(e) => format!("restaurar {} falhou: {e}", old.display()),
     };
+    let hint = if cfg!(windows) {
+        format!(
+            "; provavelmente o Microsoft Defender ou o SmartScreen bloqueou o binario. Veja {DEFENDER_GUIDE}"
+        )
+    } else {
+        String::new()
+    };
     anyhow::bail!(
-        "{} nao executa depois da troca ({state}); provavelmente o Microsoft Defender ou o SmartScreen bloqueou o binario. Veja {DEFENDER_GUIDE}",
+        "{} nao executa depois da troca ({state}){hint}",
         exe.display()
     )
-}
-
-#[cfg(not(windows))]
-fn restore(exe: &Path, _old: &Path) -> anyhow::Result<()> {
-    anyhow::bail!("{} nao executa depois da troca", exe.display())
 }
 
 #[cfg(test)]

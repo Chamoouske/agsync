@@ -346,3 +346,21 @@ fn update_of_a_tag_without_binaries_says_so_and_changes_nothing() {
     assert_eq!(std::fs::read(&exe).unwrap(), before);
     assert_eq!(common::count(exe.parent().unwrap()), 1);
 }
+
+#[test]
+fn update_to_a_binary_that_does_not_run_restores_the_old_one() {
+    let mut env = setup();
+    let exe = agsync_copy(&env);
+    let before = std::fs::read(&exe).unwrap();
+    publish(&mut env, "99.0.0", b"x", &agsync::hash::hash_bytes(b"x"));
+    env.ok(&["check"]);
+
+    let (ok, out) = run(&env, &exe, &["update", "--yes"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("nao executa depois da troca"), "{out}");
+    assert!(out.contains("a versao anterior foi restaurada"), "{out}");
+    assert_eq!(std::fs::read(&exe).unwrap(), before);
+    assert_eq!(names(exe.parent().unwrap()).len(), 1);
+    assert!(run(&env, &exe, &["--version"]).0);
+    assert!(env.data.join("update.json").exists());
+}
