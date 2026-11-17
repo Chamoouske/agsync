@@ -192,7 +192,7 @@ Uma fonte em branch ou tag e seguida: um commit novo nela tambem aparece no `che
 | `agsync rollback [--yes]` | reaplica o commit aplicado antes do atual, pelo mesmo fluxo de plano e apply |
 | `agsync check` | so le o remoto: grava `pending.json` e notifica uma vez por novidade; antes, ve se ha versao nova do agsync (grava `update.json` e notifica uma vez por versao); roda pelo agendador |
 | `agsync hook` | imprime a linha de pendencia e a de versao nova, sem rede; roda pelo perfil do shell |
-| `agsync update [--yes]` | atualiza o agsync para a ultima release: baixa o binario, confere o SHA256 com o `SHA256SUMS` e troca o executavel; instalado pelo Scoop, roda `scoop update agsync` |
+| `agsync update [--yes]` | atualiza o agsync para a ultima release: baixa o binario, confere o SHA256 com o `SHA256SUMS` e troca o executavel; instalado pelo Scoop, so diz para rodar `scoop update agsync`, porque o Scoop nao atualiza um agsync em execucao |
 | `agsync hook install [--yes]` / `hook remove` | poe ou tira o hook em PowerShell, pwsh, bash, zsh e fish |
 | `agsync schedule install\|remove\|status` | o `check` periodico: Agendador de Tarefas no Windows, timer do systemd de usuario ou cron no Linux |
 | `agsync secret set NOME` / `secret list` | grava um valor no `secrets.env`, ou lista os nomes |

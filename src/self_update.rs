@@ -1,5 +1,6 @@
 //! `agsync update`: replaces this binary with the latest release after checking its
-//! SHA256, or runs `scoop update agsync` when Scoop installed it.
+//! SHA256, or tells to run `scoop update agsync` when Scoop installed it: Scoop does not
+//! update an app that is running, and this process is.
 
 use std::io::Write;
 use std::path::Path;
@@ -40,11 +41,10 @@ pub fn update(yes: bool) -> anyhow::Result<bool> {
     }
     let exe = crate::paths::current_exe()?;
     if from_scoop(&exe, &scoop_roots()) {
-        let question = format!("agsync {current} -> {latest}: rodar `scoop update agsync`?");
-        if !crate::prompt::confirm(yes, &question, "agsync update")? {
-            return Ok(true);
-        }
-        return scoop_update(&dirs);
+        println!(
+            "agsync {current} -> {latest}: instalado pelo Scoop, que nao atualiza um agsync em execucao; rode `scoop update agsync`"
+        );
+        return Ok(true);
     }
     let (os, arch) = (std::env::consts::OS, std::env::consts::ARCH);
     let Some(asset) = release_asset(os, arch) else {
@@ -84,21 +84,6 @@ fn from_scoop(exe: &Path, roots: &[String]) -> bool {
 
 fn normalize(path: &str) -> String {
     path.to_lowercase().replace('/', "\\")
-}
-
-/// Runs `scoop update agsync`; a failure exits with Scoop's exit code.
-fn scoop_update(dirs: &Dirs) -> anyhow::Result<bool> {
-    let scoop = crate::which::require("scoop").map_err(anyhow::Error::msg)?;
-    let status = Command::new(scoop)
-        .args(["update", "agsync"])
-        .status()
-        .context("executar `scoop update agsync`")?;
-    let code = status.code().unwrap_or(1);
-    if code != 0 {
-        std::process::exit(code);
-    }
-    update::clear(dirs)?;
-    Ok(true)
 }
 
 /// Downloads and checks the release, swaps it in for `exe` and runs it once; when it
