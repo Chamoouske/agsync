@@ -22,10 +22,56 @@ pub struct Manifest {
     /// `agsync init` applies without asking, as with `--silent-update`.
     #[serde(rename = "silentUpdate", default)]
     pub silent_update: bool,
+    #[serde(default)]
+    pub imports: Imports,
+}
+
+/// Other config repos whose items of one kind join this manifest.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Imports {
+    #[serde(default)]
+    pub mcps: Vec<Spanned<Import>>,
+    #[serde(default)]
+    pub skills: Vec<Spanned<Import>>,
+    #[serde(default)]
+    pub plugins: Vec<Spanned<Import>>,
+}
+
+/// One repo to import items of a single kind from, read from its root `agsync.yaml`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Import {
+    pub git: String,
+    #[serde(rename = "ref")]
+    pub git_ref: Option<String>,
+    pub profiles: Option<Vec<String>>,
+    #[serde(default)]
+    pub excludes: Vec<String>,
+    /// Variables the imported MCPs may reference as `${NAME}`; only in `imports.mcps`.
+    pub secrets: Option<Vec<String>>,
+}
+
+impl Import {
+    /// `ref` if given, else `main`, as `agsync init` does.
+    pub fn git_ref(&self) -> &str {
+        self.git_ref.as_deref().unwrap_or("main")
+    }
+}
+
+impl Imports {
+    /// Each kind with its entries, in a fixed order.
+    pub fn kinds(&self) -> [(&'static str, &[Spanned<Import>]); 3] {
+        [
+            ("mcps", &self.mcps),
+            ("skills", &self.skills),
+            ("plugins", &self.plugins),
+        ]
+    }
 }
 
 /// One plugin entry from a marketplace.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Plugin {
     pub name: String,
@@ -35,7 +81,7 @@ pub struct Plugin {
 }
 
 /// Where a plugin is published.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Marketplace {
     /// Git URL, GitHub shorthand or a local folder with `.claude-plugin`.
@@ -46,7 +92,7 @@ pub struct Marketplace {
 }
 
 /// One MCP server entry.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mcp {
     pub profiles: Option<Vec<String>>,
@@ -60,7 +106,7 @@ pub struct Mcp {
 }
 
 /// Git source to build an MCP server from.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Source {
     pub git: String,
@@ -178,6 +224,48 @@ impl Manifest {
                 }
             }
         }
+        self.validate_imports()
+    }
+
+    fn validate_imports(&self) -> anyhow::Result<()> {
+        for (kind, entries) in self.imports.kinds() {
+            let mut origins = BTreeMap::new();
+            for entry in entries {
+                let line = entry.defined.line();
+                let import = &entry.value;
+                self.validate_import(kind, import).map_err(|e| {
+                    anyhow::anyhow!("agsync.yaml linha {line}: imports.{kind}: {e}")
+                })?;
+                let origin = (crate::plugin::repo_key(&import.git), import.git_ref());
+                if let Some(first) = origins.insert(origin, line) {
+                    anyhow::bail!(
+                        "agsync.yaml linha {line}: imports.{kind}: '{}' ref '{}' repetido (ja definido na linha {first})",
+                        import.git,
+                        import.git_ref()
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_import(&self, kind: &str, import: &Import) -> anyhow::Result<()> {
+        check_git_url(&import.git, "imports.git")?;
+        if import.secrets.is_some() && kind != "mcps" {
+            anyhow::bail!("secrets so vale em imports.mcps");
+        }
+        for name in import.secrets.iter().flatten() {
+            if !crate::secret::valid_name(name) {
+                anyhow::bail!("secrets: nome '{name}' invalido (use letras, numeros e _)");
+            }
+        }
+        if import.git_ref.is_some() {
+            check_ref(import.git_ref.as_deref(), "imports.git")?;
+        }
+        self.check_profiles(&import.profiles)?;
+        for name in &import.excludes {
+            check_name(name)?;
+        }
         Ok(())
     }
 
@@ -185,7 +273,7 @@ impl Manifest {
         check_name(&plugin.name)?;
         self.check_profiles(&plugin.profiles)?;
         check_agents(&plugin.agents)?;
-        check_git_url(&plugin.marketplace.git)?;
+        check_git_url(&plugin.marketplace.git, "marketplace.git")?;
         check_ref(Some(&plugin.marketplace.git_ref), "marketplace")
     }
 
@@ -205,6 +293,7 @@ impl Manifest {
             anyhow::bail!("args e env so valem com command");
         }
         if let Some(source) = &mcp.source {
+            check_git_url(&source.git, "source.git")?;
             check_ref(source.git_ref.as_deref(), "source.git")?;
         }
         Ok(())
@@ -213,7 +302,8 @@ impl Manifest {
     fn validate_skill(&self, skill: &Skill) -> anyhow::Result<String> {
         self.check_profiles(&skill.profiles)?;
         check_agents(&skill.agents)?;
-        if skill.git.is_some() {
+        if let Some(git) = &skill.git {
+            check_git_url(git, "git")?;
             check_ref(skill.git_ref.as_deref(), "git")?;
         }
         if skill.path.is_none() {
@@ -335,6 +425,9 @@ fn check_ref(git_ref: Option<&str>, field: &str) -> anyhow::Result<()> {
     let Some(git_ref) = git_ref.filter(|r| !r.trim().is_empty()) else {
         anyhow::bail!("{field} exige ref");
     };
+    if git_ref.trim_start().starts_with('-') {
+        anyhow::bail!("ref '{git_ref}' nao pode comecar com -");
+    }
     if crate::git::is_short_sha(git_ref) {
         anyhow::bail!("ref '{git_ref}' parece SHA abreviado; use o SHA completo");
     }
@@ -342,10 +435,14 @@ fn check_ref(git_ref: Option<&str>, field: &str) -> anyhow::Result<()> {
 }
 
 /// Rejects a git URL carrying a password or token: git credentials belong to the
-/// machine's credential helper, not to `agsync.yaml`.
-fn check_git_url(git: &str) -> anyhow::Result<()> {
+/// machine's credential helper, not to `agsync.yaml`. Also rejects one starting with
+/// `-`, which `git` would read as an option.
+fn check_git_url(git: &str, field: &str) -> anyhow::Result<()> {
     if git.trim().is_empty() {
-        anyhow::bail!("marketplace.git vazio");
+        anyhow::bail!("{field} vazio");
+    }
+    if git.trim_start().starts_with('-') {
+        anyhow::bail!("{field} '{git}' nao pode comecar com -");
     }
     if let Some((scheme, rest)) = git.split_once("://") {
         let authority = rest.split(['/', '\\']).next().unwrap_or("");
@@ -354,15 +451,13 @@ fn check_git_url(git: &str) -> anyhow::Result<()> {
             // token, and a colon on any scheme is a password.
             let http = scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https");
             if http || user.contains(':') {
-                anyhow::bail!(
-                    "marketplace.git com credenciais embutidas; use o credential helper do git"
-                );
+                anyhow::bail!("{field} com credenciais embutidas; use o credential helper do git");
             }
         }
     } else if let Some((user, _)) = git.split_once('@')
         && user.contains(':')
     {
-        anyhow::bail!("marketplace.git com credenciais embutidas; use o credential helper do git");
+        anyhow::bail!("{field} com credenciais embutidas; use o credential helper do git");
     }
     Ok(())
 }
@@ -764,6 +859,240 @@ plugins:
         ));
         assert!(!selected(&Some(vec!["personal".into()]), &active));
         assert!(!selected(&Some(vec!["work".into()]), &[]));
+    }
+
+    #[test]
+    fn parses_imports_per_kind() {
+        let text = r#"version: 1
+profiles: [work]
+imports:
+  mcps:
+    - git: https://x/mcps.git
+      ref: v1
+      profiles: [work]
+      excludes: [mcp-test]
+  skills:
+    - git: https://x/mcps.git
+  plugins:
+    - git: https://x/plugins.git
+"#;
+        let m = Manifest::parse(text).unwrap();
+        let mcps = &m.imports.mcps[0].value;
+        assert_eq!(mcps.git_ref(), "v1");
+        assert_eq!(mcps.profiles, Some(vec!["work".to_string()]));
+        assert_eq!(mcps.excludes, ["mcp-test"]);
+        assert_eq!(m.imports.skills[0].value.git_ref(), "main");
+        assert_eq!(m.imports.plugins.len(), 1);
+        assert!(
+            Manifest::parse(
+                "version: 1
+"
+            )
+            .unwrap()
+            .imports
+            .mcps
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn imports_errors_carry_line_and_reason() {
+        let base = "version: 1
+profiles: [work]
+imports:
+  skills:
+";
+        let cases = [
+            (
+                "    - git: ''
+",
+                "imports.git vazio",
+            ),
+            (
+                "    - git: https://u:t@x/r.git
+",
+                "imports.git com credenciais",
+            ),
+            (
+                "    - git: https://x/r.git
+      ref: ''
+",
+                "exige ref",
+            ),
+            (
+                "    - git: https://x/r.git
+      ref: abc1234
+",
+                "SHA abreviado",
+            ),
+            (
+                "    - git: https://x/r.git
+      profiles: [home]
+",
+                "perfil 'home'",
+            ),
+            (
+                "    - git: https://x/r.git
+      excludes: ['a b']
+",
+                "invalido",
+            ),
+        ];
+        for (entry, reason) in cases {
+            let msg = err(&format!("{base}{entry}"));
+            assert!(msg.contains("linha 5"), "{msg}");
+            assert!(msg.contains("imports.skills"), "{msg}");
+            assert!(msg.contains(reason), "{msg}");
+        }
+        let unknown = format!(
+            "{base}    - git: https://x/r.git
+      bogus: 1
+"
+        );
+        assert!(err(&unknown).contains("bogus"));
+        let kind = "version: 1
+imports:
+  hooks: []
+";
+        assert!(err(kind).contains("hooks"));
+    }
+
+    #[test]
+    fn import_secrets_only_in_mcps_with_valid_names() {
+        let ok = "version: 1
+imports:
+  mcps:
+    - git: https://x/r.git
+      secrets: [GITHUB_TOKEN, _X1]
+";
+        let m = Manifest::parse(ok).unwrap();
+        let secrets = m.imports.mcps[0].value.secrets.clone().unwrap();
+        assert_eq!(secrets, ["GITHUB_TOKEN", "_X1"]);
+        for kind in ["skills", "plugins"] {
+            let text = format!(
+                "version: 1
+imports:
+  {kind}:
+    - git: https://x/r.git
+      secrets: [T]
+"
+            );
+            let msg = err(&text);
+            assert!(
+                msg.contains("linha 4") && msg.contains("so vale em imports.mcps"),
+                "{msg}"
+            );
+        }
+        let bad = "version: 1
+imports:
+  mcps:
+    - git: https://x/r.git
+      secrets: [1X]
+";
+        assert!(err(bad).contains("nome '1X' invalido"), "{}", err(bad));
+    }
+
+    #[test]
+    fn same_import_origin_twice_in_a_kind_is_error() {
+        let dup = r#"version: 1
+imports:
+  mcps:
+    - git: https://x/r.git
+    - git: https://x/r
+      ref: main
+"#;
+        let msg = err(dup);
+        assert!(msg.contains("linha 5") && msg.contains("repetido"), "{msg}");
+
+        let ok = r#"version: 1
+imports:
+  mcps:
+    - git: https://x/r.git
+    - git: https://x/r.git
+      ref: v2
+  skills:
+    - git: https://x/r.git
+"#;
+        assert!(Manifest::parse(ok).is_ok(), "{}", err(ok));
+    }
+
+    #[test]
+    fn every_git_field_rejects_options_and_credentials() {
+        let cases = [
+            "mcps:
+  a:
+    command: x
+    source: {git: '--upload-pack=x', ref: v1}
+",
+            "mcps:
+  a:
+    command: x
+    source: {git: https://x/r.git, ref: '-x'}
+",
+            "mcps:
+  a:
+    command: x
+    source: {git: 'https://u:t@x/r.git', ref: v1}
+",
+            "skills:
+  - git: '--upload-pack=x'
+    ref: v1
+    path: s
+",
+            "skills:
+  - git: https://x/r.git
+    ref: '--upload-pack=x'
+    path: s
+",
+            "skills:
+  - git: 'https://tok@x/r.git'
+    ref: v1
+    path: s
+",
+            "plugins:
+  - name: p
+    marketplace: {git: '-x', ref: v1}
+",
+            "plugins:
+  - name: p
+    marketplace: {git: https://x/r.git, ref: '-x'}
+",
+            "imports:
+  mcps:
+    - git: '--upload-pack=x'
+",
+            "imports:
+  mcps:
+    - git: https://x/r.git
+      ref: '-x'
+",
+        ];
+        for case in cases {
+            let msg = err(&format!(
+                "version: 1
+{case}"
+            ));
+            let reason = msg.contains("nao pode comecar com -") || msg.contains("credenciais");
+            assert!(reason && msg.contains("linha"), "{case}: {msg}");
+        }
+        let source_creds = err(&format!(
+            "version: 1
+{}",
+            cases[2]
+        ));
+        assert!(
+            source_creds.contains("source.git com credenciais"),
+            "{source_creds}"
+        );
+        let skill_creds = err(&format!(
+            "version: 1
+{}",
+            cases[5]
+        ));
+        assert!(
+            skill_creds.contains("skill: git com credenciais"),
+            "{skill_creds}"
+        );
     }
 
     #[test]

@@ -21,7 +21,7 @@ pub fn rollback(yes: bool) -> anyhow::Result<()> {
     let repo = inputs.machine.repo.clone();
     let snapshot = Snapshot::fetch(&repo, &previous, &previous)?;
     let manifest = read_manifest(&snapshot)?;
-    let report = Report::plan(inputs, previous.clone(), snapshot, &manifest, false)?;
+    let report = Report::plan(inputs, previous.clone(), snapshot, manifest, false)?;
     forget_watch(&report.dirs)?;
     if !crate::apply::write(report, yes, "agsync rollback", |_| Ok(()))? {
         return Ok(());

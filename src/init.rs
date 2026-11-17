@@ -63,9 +63,6 @@ fn first_apply(reachable: bool, yes: bool, silent: bool) -> bool {
         println!("pulado: repo inacessivel; corrija e rode `agsync apply`");
         return true;
     }
-    if silent {
-        println!("atualizacao silenciosa: aplicando sem perguntar");
-    }
     match crate::apply::init_apply(yes, silent) {
         Ok(true) => true,
         Ok(false) => {

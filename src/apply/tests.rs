@@ -347,3 +347,21 @@ fn failed_replacement_is_reported_and_not_tracked() {
         .all(|(_, _, a)| *a == Action::Conflict);
     assert!(conflicts, "{:?}", actions(&again));
 }
+
+#[test]
+fn silent_update_never_skips_confirming_an_imported_build() {
+    assert_eq!(init_confirm(true, true, true, true), (true, None));
+    assert_eq!(init_confirm(true, false, false, true), (true, None));
+    for (silent, silent_update) in [(true, false), (false, true), (true, true)] {
+        let (skip, note) = init_confirm(false, silent, silent_update, true);
+        assert!(!skip);
+        assert!(note.unwrap().contains("build de mcp importado"));
+        assert!(init_confirm(false, silent, silent_update, false).0);
+    }
+    let (skip, note) = init_confirm(false, true, false, false);
+    assert!(skip && note.unwrap().contains("atualizacao silenciosa"));
+    let (skip, note) = init_confirm(false, false, true, false);
+    assert!(skip && note.unwrap().contains("silentUpdate"));
+    assert_eq!(init_confirm(false, false, false, true), (false, None));
+    assert_eq!(init_confirm(false, false, false, false), (false, None));
+}

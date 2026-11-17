@@ -60,7 +60,7 @@ fn run(dirs: &Dirs) -> anyhow::Result<String> {
     let now = checklog::utc_now();
     let found = match read_manifest(&snapshot) {
         Ok(manifest) => {
-            let report = Report::plan(inputs, remote.clone(), snapshot, &manifest, false)?;
+            let report = Report::plan(inputs, remote.clone(), snapshot, manifest, false)?;
             let found = Pending::changes(&report, now);
             save_watch(dirs, &remote, &report.watched)?;
             report.snapshot.close()?;

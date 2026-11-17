@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::agent::{self, Adapter};
+use crate::compose::{Origins, compose};
 use crate::desired::{Context, Desired};
 use crate::git::{self, Snapshot};
 use crate::machine::Machine;
@@ -110,6 +111,8 @@ pub struct Report {
     pub watched: Vec<Watched>,
     /// `silentUpdate` from agsync.yaml.
     pub silent_update: bool,
+    /// Import each imported item came from; items of the main repo are not here.
+    pub origins: Origins,
 }
 
 /// Local files every plan starts from.
@@ -151,15 +154,16 @@ impl Report {
         let remote = git::resolve(&inputs.machine.repo, &inputs.machine.git_ref)?;
         let snapshot = Snapshot::fetch(&inputs.machine.repo, &inputs.machine.git_ref, &remote)?;
         let manifest = read_manifest(&snapshot)?;
-        Report::plan(inputs, remote, snapshot, &manifest, adopt)
+        Report::plan(inputs, remote, snapshot, manifest, adopt)
     }
 
-    /// Plans each agent for a snapshot whose manifest is already read.
+    /// Plans each agent for a snapshot whose manifest is already read, with the imports
+    /// of the active profiles merged in.
     pub fn plan(
         inputs: Inputs,
         remote: String,
         snapshot: Snapshot,
-        manifest: &Manifest,
+        manifest: Manifest,
         adopt: bool,
     ) -> anyhow::Result<Report> {
         let Inputs {
@@ -168,8 +172,11 @@ impl Report {
             state,
             secrets,
         } = inputs;
+        let composed = compose(manifest, &machine.profiles)?;
+        let manifest = &composed.manifest;
         let sources = Resolved::new(manifest, &machine.profiles, &dirs);
         let mut skipped = sources.skipped.clone();
+        skipped.extend(composed.skipped.iter().cloned());
         let ctx = Context {
             manifest,
             root: snapshot.path(),
@@ -194,11 +201,15 @@ impl Report {
         }
         let builds = needed_builds(&sources, &agents);
         let reach: Vec<SkillReach> = agents.iter().map(SkillReach::of).collect();
-        let mut warnings = seen_anyway(manifest, &machine.profiles, &reach);
+        let mut warnings = composed.warnings.clone();
+        warnings.extend(seen_anyway(manifest, &machine.profiles, &reach));
         warnings.extend(duplicate_items(
             agents.iter().map(|p| (p.agent, &p.desired)),
         ));
-        let watched = sources.watched.clone();
+        let mut watched = sources.watched.clone();
+        watched.extend(composed.watched.iter().cloned());
+        watched.sort();
+        watched.dedup();
         Ok(Report {
             dirs,
             machine,
@@ -211,6 +222,7 @@ impl Report {
             warnings,
             watched,
             silent_update: manifest.silent_update,
+            origins: composed.origins.clone(),
         })
     }
 
@@ -224,6 +236,13 @@ impl Report {
         changes || !self.builds.is_empty()
     }
 
+    /// True when some build apply would run comes from an imported MCP.
+    pub fn has_imported_build(&self) -> bool {
+        self.builds
+            .iter()
+            .any(|job| self.origins.contains_key(&("mcp", job.name.clone())))
+    }
+
     /// Prints every build apply would run: third-party code on this machine.
     pub fn print_builds(&self) {
         if self.builds.is_empty() {
@@ -232,8 +251,9 @@ impl Report {
         println!();
         println!("!!! BUILDS: estes comandos executam codigo de terceiros nesta maquina !!!");
         for job in &self.builds {
+            let origin = origin_note(&self.origins, "mcp", &job.name);
             println!(
-                "  mcp {}: {} @ {} ({})",
+                "  mcp {}: {} @ {} ({}){origin}",
                 job.name, job.repo, job.sha, job.git_ref
             );
             if job.commands.is_empty() {
@@ -254,8 +274,9 @@ impl Report {
             for (kind, change) in plan.visible() {
                 any = true;
                 let detail = plan.detail(kind, change);
+                let origin = origin_note(&self.origins, kind, &change.name);
                 println!(
-                    "  {kind} {}: {}{detail}",
+                    "  {kind} {}: {}{detail}{origin}",
                     change.name,
                     change.action.label()
                 );
@@ -341,6 +362,14 @@ pub fn diff() -> anyhow::Result<()> {
     report.print_builds();
     report.print_warnings();
     report.snapshot.close()
+}
+
+/// ` (de imports.<kind> <git>@<ref>)` for an imported item, empty for the main repo's.
+fn origin_note(origins: &Origins, kind: &'static str, name: &str) -> String {
+    origins
+        .get(&(kind, name.to_string()))
+        .map(|origin| format!(" (de {origin})"))
+        .unwrap_or_default()
 }
 
 /// Where a detected agent writes skills and where it loads them from.
@@ -617,6 +646,19 @@ skills:
         assert!(lines[2].contains("plugin mcp-only") && lines[2].contains("mcps"));
         assert!(lines[3].contains("plugin both") && lines[3].contains("codex"));
         assert!(lines.iter().all(|l| !l.contains("skill-only")));
+    }
+
+    #[test]
+    fn imported_items_name_their_origin() {
+        let mut origins = Origins::new();
+        let from = "imports.mcps https://x/team.git@main".to_string();
+        origins.insert(("mcp", "team".to_string()), from);
+        assert_eq!(
+            origin_note(&origins, "mcp", "team"),
+            " (de imports.mcps https://x/team.git@main)"
+        );
+        assert_eq!(origin_note(&origins, "skill", "team"), "");
+        assert_eq!(origin_note(&origins, "mcp", "local"), "");
     }
 
     #[test]

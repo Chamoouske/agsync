@@ -24,8 +24,8 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
 }
 
 /// `agsync init`'s last step: [`apply`] that does not ask when `silent` is set or
-/// agsync.yaml has `silentUpdate: true`. Returns false when it would have to ask
-/// without a terminal; nothing is written then.
+/// agsync.yaml has `silentUpdate: true`, unless a build comes from an import. Returns
+/// false when it would have to ask without a terminal; nothing is written then.
 pub fn init_apply(yes: bool, silent: bool) -> anyhow::Result<bool> {
     let _lock = Lock::wait(&Dirs::from_env()?)?;
     let no_tty = !std::io::stdin().is_terminal();
@@ -34,17 +34,53 @@ pub fn init_apply(yes: bool, silent: bool) -> anyhow::Result<bool> {
         Err(_) if skip_without_asking => return Ok(false),
         built => built?,
     };
-    let by_config = !yes && !silent && report.silent_update;
-    if by_config {
-        println!("silentUpdate no agsync.yaml: aplicando sem perguntar");
+    let (skip_prompt, note) = init_confirm(
+        yes,
+        silent,
+        report.silent_update,
+        report.has_imported_build(),
+    );
+    if let Some(note) = note {
+        println!("{note}");
     }
-    let yes = yes || silent || report.silent_update;
+    let yes = skip_prompt;
     if !yes && no_tty {
         report.snapshot.close()?;
         return Ok(false);
     }
     write(report, yes, "agsync apply", settle_check)?;
     Ok(true)
+}
+
+/// Whether `init` applies without asking, and what to tell about it. `--yes` always
+/// skips the prompt; `--silent-update` and `silentUpdate` do not when a build comes
+/// from an imported repo, since that runs third-party code on this machine.
+fn init_confirm(
+    yes: bool,
+    silent: bool,
+    silent_update: bool,
+    imported_build: bool,
+) -> (bool, Option<&'static str>) {
+    if yes {
+        return (true, None);
+    }
+    if (silent || silent_update) && imported_build {
+        let note = "build de mcp importado: a atualizacao silenciosa nao vale, confirme o apply";
+        return (false, Some(note));
+    }
+    if silent {
+        return (
+            true,
+            Some("atualizacao silenciosa: aplicando sem perguntar"),
+        );
+    }
+    if silent_update {
+        return (
+            true,
+            Some("silentUpdate no agsync.yaml: aplicando sem perguntar"),
+        );
+    }
+    (false, None)
 }
 
 /// Shows the diff, asks for confirmation, applies, updates state, deletes the snapshot.
