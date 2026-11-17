@@ -48,6 +48,8 @@ pub struct Import {
     pub profiles: Option<Vec<String>>,
     #[serde(default)]
     pub excludes: Vec<String>,
+    /// Variables the imported MCPs may reference as `${NAME}`; only in `imports.mcps`.
+    pub secrets: Option<Vec<String>>,
 }
 
 impl Import {
@@ -231,7 +233,7 @@ impl Manifest {
             for entry in entries {
                 let line = entry.defined.line();
                 let import = &entry.value;
-                self.validate_import(import).map_err(|e| {
+                self.validate_import(kind, import).map_err(|e| {
                     anyhow::anyhow!("agsync.yaml linha {line}: imports.{kind}: {e}")
                 })?;
                 let origin = (crate::plugin::repo_key(&import.git), import.git_ref());
@@ -247,8 +249,16 @@ impl Manifest {
         Ok(())
     }
 
-    fn validate_import(&self, import: &Import) -> anyhow::Result<()> {
+    fn validate_import(&self, kind: &str, import: &Import) -> anyhow::Result<()> {
         check_git_url(&import.git, "imports.git")?;
+        if import.secrets.is_some() && kind != "mcps" {
+            anyhow::bail!("secrets so vale em imports.mcps");
+        }
+        for name in import.secrets.iter().flatten() {
+            if !crate::secret::valid_name(name) {
+                anyhow::bail!("secrets: nome '{name}' invalido (use letras, numeros e _)");
+            }
+        }
         if import.git_ref.is_some() {
             check_ref(import.git_ref.as_deref(), "imports.git")?;
         }
@@ -945,6 +955,41 @@ imports:
   hooks: []
 ";
         assert!(err(kind).contains("hooks"));
+    }
+
+    #[test]
+    fn import_secrets_only_in_mcps_with_valid_names() {
+        let ok = "version: 1
+imports:
+  mcps:
+    - git: https://x/r.git
+      secrets: [GITHUB_TOKEN, _X1]
+";
+        let m = Manifest::parse(ok).unwrap();
+        let secrets = m.imports.mcps[0].value.secrets.clone().unwrap();
+        assert_eq!(secrets, ["GITHUB_TOKEN", "_X1"]);
+        for kind in ["skills", "plugins"] {
+            let text = format!(
+                "version: 1
+imports:
+  {kind}:
+    - git: https://x/r.git
+      secrets: [T]
+"
+            );
+            let msg = err(&text);
+            assert!(
+                msg.contains("linha 4") && msg.contains("so vale em imports.mcps"),
+                "{msg}"
+            );
+        }
+        let bad = "version: 1
+imports:
+  mcps:
+    - git: https://x/r.git
+      secrets: [1X]
+";
+        assert!(err(bad).contains("nome '1X' invalido"), "{}", err(bad));
     }
 
     #[test]

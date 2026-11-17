@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::git::{self, Snapshot};
-use crate::manifest::{Import, Manifest, selected};
+use crate::manifest::{Import, Manifest, Mcp, selected};
 use crate::resolved::Watched;
 
 /// The manifest with its imports merged in, and what the merge has to say.
@@ -92,6 +92,26 @@ fn read_remote(import: &Import, sha: &str) -> anyhow::Result<Manifest> {
     manifest.check_skill_dirs(snapshot.path())?;
     snapshot.close()?;
     Ok(manifest)
+}
+
+/// First `${NAME}` an imported MCP references outside `allowed`, in command, args,
+/// env, url or headers: an imported repo must not read secrets it was not given.
+fn unlisted_secret(mcp: &Mcp, allowed: &[String]) -> Option<String> {
+    let mut texts: Vec<&str> = Vec::new();
+    texts.extend(mcp.command.as_deref());
+    texts.extend(mcp.url.as_deref());
+    texts.extend(mcp.args.iter().flatten().map(String::as_str));
+    texts.extend(mcp.env.iter().flat_map(|e| e.values()).map(String::as_str));
+    texts.extend(
+        mcp.headers
+            .iter()
+            .flat_map(|h| h.values())
+            .map(String::as_str),
+    );
+    texts
+        .into_iter()
+        .flat_map(crate::secret::refs)
+        .find(|name| !allowed.contains(name))
 }
 
 /// Where each active item name of each kind comes from.
@@ -187,6 +207,13 @@ impl Merge {
                 && crate::plugin::is_local_marketplace(&source.git)
             {
                 self.skip_local("mcp", name, "source.git", origin);
+                continue;
+            }
+            let allowed = import.secrets.as_deref().unwrap_or_default();
+            if let Some(var) = unlisted_secret(&mcp.value, allowed) {
+                self.skipped.push(format!(
+                    "mcp {name}: {origin} usa ${{{var}}} fora da lista; para liberar, inclua {var} em imports.mcps[].secrets"
+                ));
                 continue;
             }
             if !self.claim("mcps", name, origin) {
@@ -638,6 +665,7 @@ imports:
             git_ref: None,
             profiles: None,
             excludes: Vec::new(),
+            secrets: None,
         };
         let mut remotes = Remotes::default();
         let (first, _) = remotes.get(&import).unwrap();
@@ -646,6 +674,60 @@ imports:
         assert_eq!(again, first);
         assert_ne!(moved, first);
         assert_eq!(remote.mcps["x"].value.command.as_deref(), Some("one"));
+    }
+
+    #[test]
+    fn imported_mcps_read_only_allowed_secrets() {
+        let a = Repo::new(
+            r#"version: 1
+mcps:
+  plain:
+    command: x
+  by-env:
+    command: x
+    env: {T: "${GITHUB_TOKEN}"}
+  by-args:
+    command: x
+    args: ["--token=${OTHER}"]
+  by-command:
+    command: "${HOME_BIN}/x"
+  by-header:
+    url: https://x/mcp
+    headers: {Authorization: "Bearer ${GITHUB_TOKEN}"}
+  by-url:
+    url: "https://x/${OTHER}"
+"#,
+            &[],
+        );
+        let at = |secrets: &str| {
+            let main = format!(
+                "version: 1
+imports:
+  mcps:
+    - git: \"{}\"
+{secrets}",
+                a.url
+            );
+            compose_yaml(&main, &[]).unwrap()
+        };
+        let none = at("");
+        let names: Vec<_> = none.manifest.mcps.keys().map(String::as_str).collect();
+        assert_eq!(names, ["plain"]);
+        assert_eq!(none.skipped.len(), 5, "{:?}", none.skipped);
+        let env = none
+            .skipped
+            .iter()
+            .find(|l| l.starts_with("mcp by-env"))
+            .unwrap();
+        assert!(env.contains("${GITHUB_TOKEN}"), "{env}");
+        assert!(env.contains("imports.mcps[].secrets"), "{env}");
+
+        let some = at("      secrets: [GITHUB_TOKEN]
+");
+        let names: Vec<_> = some.manifest.mcps.keys().map(String::as_str).collect();
+        assert_eq!(names, ["by-env", "by-header", "plain"]);
+        assert_eq!(some.skipped.len(), 3, "{:?}", some.skipped);
+        assert!(some.skipped.iter().all(|l| !l.contains("GITHUB_TOKEN")));
     }
 
     #[test]
