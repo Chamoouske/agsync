@@ -21,9 +21,9 @@ pub const RELEASES_VAR: &str = "AGSYNC_RELEASES_URL";
 pub struct Version(pub u64, pub u64, pub u64);
 
 impl Version {
-    /// `X.Y.Z` with numbers only; anything else is `None`.
+    /// `X.Y.Z` of ASCII digits without leading zeros; anything else is `None`.
     pub fn parse(text: &str) -> Option<Version> {
-        let mut parts = text.split('.').map(|p| p.parse::<u64>().ok());
+        let mut parts = text.split('.').map(number);
         let version = Version(parts.next()??, parts.next()??, parts.next()??);
         if parts.next().is_some() {
             return None;
@@ -35,6 +35,16 @@ impl Version {
     pub fn current() -> Version {
         Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or(Version(0, 0, 0))
     }
+}
+
+/// One version field: `0`, or ASCII digits not starting with `0`.
+fn number(text: &str) -> Option<u64> {
+    let digits = !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
+    let leading_zero = text.len() > 1 && text.starts_with('0');
+    if !digits || leading_zero {
+        return None;
+    }
+    text.parse().ok()
 }
 
 impl fmt::Display for Version {
@@ -148,6 +158,19 @@ mod tests {
         assert_eq!(Version::parse("1.2.3-rc1"), None);
         assert_eq!(Version::parse("a.b.c"), None);
         assert_eq!(Version::parse(""), None);
+        assert_eq!(Version::parse("0.0.0"), Some(Version(0, 0, 0)));
+        assert_eq!(Version::parse("10.20.30"), Some(Version(10, 20, 30)));
+    }
+
+    #[test]
+    fn refuses_signs_spaces_and_leading_zeros() {
+        assert_eq!(Version::parse("1.+2.3"), None);
+        assert_eq!(Version::parse("0.12.00"), None);
+        assert_eq!(Version::parse("v0.12.0"), None);
+        assert_eq!(Version::parse("01.2.3"), None);
+        assert_eq!(Version::parse("1. 2.3"), None);
+        assert_eq!(Version::parse("1..3"), None);
+        assert_eq!(Version::parse("1.2.\u{663}"), None);
     }
 
     #[test]
