@@ -19,7 +19,8 @@ pub fn rollback(yes: bool) -> anyhow::Result<()> {
     let current = inputs.state.commit.clone().unwrap_or_default();
     println!("rollback: {current} -> {previous}");
     let repo = inputs.machine.repo.clone();
-    let snapshot = Snapshot::fetch(&repo, &previous, &previous)?;
+    let cache = inputs.dirs.snapshot_cache();
+    let snapshot = Snapshot::cached(&cache, &repo, &previous, &previous)?;
     let manifest = read_manifest(&snapshot)?;
     let report = Report::plan(inputs, previous.clone(), snapshot, manifest, false)?;
     forget_watch(&report.dirs)?;

@@ -127,22 +127,22 @@ fn imported_manifest_is_fetched_once_per_commit() {
         (git_runs(&trace, "fetch"), text)
     };
 
-    assert_eq!(fetches(&env, true).0, 1, "main repo only");
-    assert_eq!(fetches(&env, true).0, 1, "main repo only");
+    assert_eq!(fetches(&env, true).0, 0, "both repos cached");
+    assert_eq!(fetches(&env, true).0, 0, "both repos cached");
 
     std::fs::remove_dir_all(team.join("skills")).unwrap();
     commit_team(&team, &team_yaml(""));
     let (count, text) = fetches(&env, false);
-    assert_eq!(count, 2, "new commit snapshots the import");
+    assert_eq!(count, 1, "new commit snapshots the import");
     assert!(text.contains("sem SKILL.md"), "{text}");
-    assert_eq!(fetches(&env, false).0, 2, "failed check is not cached");
+    assert_eq!(fetches(&env, false).0, 1, "failed check is not cached");
 
     commit_team(&team, "version: 1\n");
-    assert_eq!(fetches(&env, true).0, 2);
+    assert_eq!(fetches(&env, true).0, 1);
     let cache = env.data.join("imports");
     for entry in std::fs::read_dir(&cache).unwrap() {
         std::fs::write(entry.unwrap().path(), "version: [").unwrap();
     }
-    assert_eq!(fetches(&env, true).0, 2, "corrupt entry is a miss");
-    assert_eq!(fetches(&env, true).0, 1);
+    assert_eq!(fetches(&env, true).0, 1, "corrupt entry is a miss");
+    assert_eq!(fetches(&env, true).0, 0);
 }

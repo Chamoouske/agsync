@@ -46,6 +46,11 @@ impl Dirs {
         self.data.join("imports")
     }
 
+    /// Checkouts of the config repo, by url and commit.
+    pub fn snapshot_cache(&self) -> PathBuf {
+        self.data.join("snapshots")
+    }
+
     pub fn sources(&self) -> PathBuf {
         self.data.join("sources")
     }

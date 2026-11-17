@@ -53,7 +53,7 @@ fn run(dirs: &Dirs) -> anyhow::Result<String> {
     if watch.is_some_and(|w| w.unchanged(&remote)) {
         return Ok(format!("sem novidade em {remote}"));
     }
-    let snapshot = match Snapshot::fetch(&repo, &git_ref, &remote) {
+    let snapshot = match Snapshot::cached(&dirs.snapshot_cache(), &repo, &git_ref, &remote) {
         Ok(snapshot) => snapshot,
         Err(e) => return Ok(format!("snapshot de {remote} falhou, nada mudou: {e:#}")),
     };

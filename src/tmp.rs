@@ -15,13 +15,18 @@ pub struct TempDir {
 impl TempDir {
     /// Creates `<temp>/<prefix>-<pid>-<nanos>-<n>`.
     pub fn new(prefix: &str) -> std::io::Result<TempDir> {
+        TempDir::new_in(&std::env::temp_dir(), prefix)
+    }
+
+    /// Creates `<parent>/<prefix>-<pid>-<nanos>-<n>`, `parent` included.
+    pub fn new_in(parent: &Path, prefix: &str) -> std::io::Result<TempDir> {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let name = format!("{prefix}-{}-{nanos}-{n}", std::process::id());
-        let path = std::env::temp_dir().join(name);
+        let path = parent.join(name);
         std::fs::create_dir_all(&path)?;
         Ok(TempDir { path })
     }

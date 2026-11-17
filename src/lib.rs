@@ -36,6 +36,7 @@ pub mod rollback;
 pub mod schedule;
 pub mod secret;
 pub mod shell;
+pub mod snapshot_cache;
 pub mod source;
 pub mod state;
 pub mod tmp;
