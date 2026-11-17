@@ -173,7 +173,7 @@ jobs:
           path: packaging/winget
           if-no-files-found: error
 
-      - name: Open a pull request with the updated manifests
+      - name: Open a pull request with the updated manifests and turn on auto-merge
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
         run: |
@@ -190,12 +190,14 @@ jobs:
           git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch"
           if gh pr view "$branch" > /dev/null 2>&1; then
             echo "pull request for $branch already open"
-            exit 0
-          fi
-          if ! gh pr create --base master --head "$branch" \
+          elif ! gh pr create --base master --head "$branch" \
             --title "chore(packaging): point manifests at v$VERSION" \
             --body "Scoop and WinGet manifests for release v$VERSION, generated from the published SHA256SUMS."; then
             echo "::warning::could not open the pull request; open it from $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/master...$branch"
+            exit 0
+          fi
+          if ! gh pr merge "$branch" --auto --squash --delete-branch; then
+            echo "::warning::could not enable auto-merge on the manifests pull request for v$VERSION; turn on Settings > General > Allow auto-merge or merge it by hand"
           fi
 
       - name: Report that the release is out but the manifests are not
