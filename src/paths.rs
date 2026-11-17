@@ -67,6 +67,11 @@ impl Dirs {
         self.data.join("pending.json")
     }
 
+    /// Newer agsync version found by `check`.
+    pub fn update_file(&self) -> PathBuf {
+        self.data.join("update.json")
+    }
+
     pub fn watch_file(&self) -> PathBuf {
         self.data.join("watch.json")
     }

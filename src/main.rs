@@ -80,6 +80,12 @@ enum Cmd {
         #[arg(long)]
         purge: bool,
     },
+    /// Replace this binary with the latest release (or run `scoop update agsync`).
+    Update {
+        /// Update without asking; required when stdin is not a terminal.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Manage secrets.env, the local file for `${VAR}` values.
     Secret {
         #[command(subcommand)]
@@ -122,9 +128,12 @@ enum SecretCmd {
 
 impl Cmd {
     /// Commands that print the pending line on stderr first: all but the ones that
-    /// handle `pending.json` themselves.
+    /// handle `pending.json` or `update.json` themselves.
     fn warns_pending(&self) -> bool {
-        !matches!(self, Cmd::Hook { .. } | Cmd::Check | Cmd::Apply { .. })
+        !matches!(
+            self,
+            Cmd::Hook { .. } | Cmd::Check | Cmd::Apply { .. } | Cmd::Update { .. }
+        )
     }
 }
 
@@ -159,6 +168,7 @@ fn main() {
         },
         Cmd::MigrateLegacy { yes } => agsync::legacy::migrate_legacy(yes),
         Cmd::Uninstall { yes, purge } => agsync::uninstall::uninstall(yes, purge),
+        Cmd::Update { yes } => agsync::self_update::update(yes),
         Cmd::Secret {
             command: SecretCmd::Set { name },
         } => agsync::cmd::secret_set(&name).map(|()| true),
