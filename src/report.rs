@@ -172,7 +172,7 @@ impl Report {
             state,
             secrets,
         } = inputs;
-        let composed = compose(manifest, &machine.profiles)?;
+        let composed = compose(manifest, &machine.profiles, &dirs.import_cache())?;
         let manifest = &composed.manifest;
         let sources = Resolved::new(manifest, &machine.profiles, &dirs);
         let mut skipped = sources.skipped.clone();

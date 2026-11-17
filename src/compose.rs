@@ -1,8 +1,10 @@
 //! `imports`: items of one kind taken from other config repos, for the active profiles.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use crate::git::{self, Snapshot};
+use crate::import_cache;
 use crate::manifest::{Import, Manifest, Mcp, selected};
 use crate::resolved::Watched;
 
@@ -21,9 +23,14 @@ pub struct Composed {
 pub type Origins = BTreeMap<(&'static str, String), String>;
 
 /// Merges every import selected for `active` into `manifest`. Imports of inactive
-/// profiles are not fetched. Any import that cannot be read fails the whole plan:
-/// skipping it would remove its items from the agents.
-pub fn compose(mut manifest: Manifest, active: &[String]) -> anyhow::Result<Composed> {
+/// profiles are not fetched, and a commit already read is taken from `cache`. Any
+/// import that cannot be read fails the whole plan: skipping it would remove its
+/// items from the agents.
+pub fn compose(
+    mut manifest: Manifest,
+    active: &[String],
+    cache: &Path,
+) -> anyhow::Result<Composed> {
     let imports = std::mem::take(&mut manifest.imports);
     let mut merge = Merge {
         owners: Owners::of(&manifest, active),
@@ -32,7 +39,7 @@ pub fn compose(mut manifest: Manifest, active: &[String]) -> anyhow::Result<Comp
         warnings: Vec::new(),
         skipped: Vec::new(),
     };
-    let mut remotes = Remotes::default();
+    let mut remotes = Remotes::new(cache);
     let mut watched = Vec::new();
     for (kind, entries) in imports.kinds() {
         for entry in entries {
@@ -63,18 +70,26 @@ pub fn compose(mut manifest: Manifest, active: &[String]) -> anyhow::Result<Comp
 
 /// Imported repos seen in this run: each url and ref resolves once, so every kind
 /// importing it reads the same commit, and each commit is read once.
-#[derive(Default)]
-struct Remotes {
+struct Remotes<'a> {
+    cache: &'a Path,
     shas: BTreeMap<(String, String), String>,
     read: BTreeMap<(String, String), Manifest>,
 }
 
-impl Remotes {
+impl<'a> Remotes<'a> {
+    fn new(cache: &'a Path) -> Remotes<'a> {
+        Remotes {
+            cache,
+            shas: BTreeMap::new(),
+            read: BTreeMap::new(),
+        }
+    }
+
     fn get(&mut self, import: &Import) -> anyhow::Result<(String, &Manifest)> {
         let sha = self.resolve(import)?;
         let key = (import.git.clone(), sha.clone());
         if !self.read.contains_key(&key) {
-            let manifest = read_remote(import, &sha)?;
+            let manifest = read_remote(import, &sha, self.cache)?;
             self.read.insert(key.clone(), manifest);
         }
         Ok((sha, &self.read[&key]))
@@ -91,13 +106,21 @@ impl Remotes {
     }
 }
 
-fn read_remote(import: &Import, sha: &str) -> anyhow::Result<Manifest> {
+/// Manifest of `import` at `sha`: from `cache`, else from a snapshot, checked and
+/// then cached.
+fn read_remote(import: &Import, sha: &str, cache: &Path) -> anyhow::Result<Manifest> {
+    if let Some(manifest) = import_cache::load(cache, &import.git, sha) {
+        return Ok(manifest);
+    }
     let snapshot = Snapshot::fetch(&import.git, import.git_ref(), sha)?;
     let text = std::fs::read_to_string(snapshot.path().join("agsync.yaml"))
         .map_err(|_| anyhow::anyhow!("agsync.yaml nao encontrado"))?;
     let manifest = Manifest::parse(&text)?;
     manifest.check_skill_dirs(snapshot.path())?;
     snapshot.close()?;
+    if let Err(e) = import_cache::save(cache, &import.git, sha, &text) {
+        eprintln!("aviso: cache de imports falhou: {e:#}");
+    }
     Ok(manifest)
 }
 
@@ -410,7 +433,8 @@ mod tests {
 
     fn compose_yaml(yaml: &str, active: &[&str]) -> anyhow::Result<Composed> {
         let active: Vec<String> = active.iter().map(|s| s.to_string()).collect();
-        compose(Manifest::parse(yaml).unwrap(), &active)
+        let cache = TempDir::new("agsync-test").unwrap();
+        compose(Manifest::parse(yaml).unwrap(), &active, cache.path())
     }
 
     fn command(c: &Composed, name: &str) -> String {
@@ -699,7 +723,8 @@ imports:
             excludes: Vec::new(),
             secrets: None,
         };
-        let mut remotes = Remotes::default();
+        let cache = TempDir::new("agsync-test").unwrap();
+        let mut remotes = Remotes::new(cache.path());
         let (first, _) = remotes.get(&import).unwrap();
         let moved = repo.commit(&mcps(&[("x", "two")]));
         let (again, remote) = remotes.get(&import).unwrap();

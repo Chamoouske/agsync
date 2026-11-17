@@ -98,3 +98,51 @@ imports:
         "{text}"
     );
 }
+
+/// Runs of `git <command>` since the last call, read from a `GIT_TRACE` log.
+fn git_runs(trace: &std::path::Path, command: &str) -> usize {
+    let text = std::fs::read_to_string(trace).unwrap_or_default();
+    std::fs::remove_file(trace).ok();
+    let needle = format!("built-in: git {command} ");
+    text.lines().filter(|l| l.contains(&needle)).count()
+}
+
+#[test]
+fn imported_manifest_is_fetched_once_per_commit() {
+    let mut env = Env::new();
+    env.path = Some(path_with(&["git", "sh"], &[]));
+    let (team, team_url) = team_repo(&env);
+    git(&env.remote, &["init", "-q", "-b", "main"]);
+    env.push(&format!(
+        "version: 1\nimports:\n  mcps:\n    - git: \"{team_url}\"\n"
+    ));
+    let url = env.remote.to_string_lossy().to_string();
+    env.ok(&["init", &url, "--profile", "work"]);
+    let trace = env.root.path().join("git-trace.log");
+    env.vars
+        .push(("GIT_TRACE".into(), trace.to_string_lossy().to_string()));
+    let fetches = |env: &Env, ok: bool| {
+        let (passed, text) = env.agsync(&["status"]);
+        assert_eq!(passed, ok, "{text}");
+        (git_runs(&trace, "fetch"), text)
+    };
+
+    assert_eq!(fetches(&env, true).0, 1, "main repo only");
+    assert_eq!(fetches(&env, true).0, 1, "main repo only");
+
+    std::fs::remove_dir_all(team.join("skills")).unwrap();
+    commit_team(&team, &team_yaml(""));
+    let (count, text) = fetches(&env, false);
+    assert_eq!(count, 2, "new commit snapshots the import");
+    assert!(text.contains("sem SKILL.md"), "{text}");
+    assert_eq!(fetches(&env, false).0, 2, "failed check is not cached");
+
+    commit_team(&team, "version: 1\n");
+    assert_eq!(fetches(&env, true).0, 2);
+    let cache = env.data.join("imports");
+    for entry in std::fs::read_dir(&cache).unwrap() {
+        std::fs::write(entry.unwrap().path(), "version: [").unwrap();
+    }
+    assert_eq!(fetches(&env, true).0, 2, "corrupt entry is a miss");
+    assert_eq!(fetches(&env, true).0, 1);
+}

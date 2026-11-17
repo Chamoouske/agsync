@@ -297,6 +297,7 @@ O que vem do repo importado:
 - Skill com `git` ou MCP com `source.git` apontando para caminho local e pulado e aparece nos pulados: o caminho so faz sentido no repo de origem.
 - So um nivel: os `imports` do repo importado nao sao seguidos, com aviso.
 - `silentUpdate` e `profiles` do repo importado sao ignorados.
+- O `agsync.yaml` importado fica em cache em `<dados>/imports/`, por url e commit, depois de validado. Enquanto o commit nao muda, cada plano so faz o `ls-remote` do import, sem baixar o repo. Entrada sem uso ha mais de 30 dias e removida; entrada ilegivel e baixada de novo.
 
 Conflito de nomes (mesmo tipo, entre itens ativos na maquina):
 

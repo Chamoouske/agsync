@@ -41,6 +41,11 @@ impl Dirs {
         self.data.join("skills")
     }
 
+    /// Checked `agsync.yaml` text of imported repos, by url and commit.
+    pub fn import_cache(&self) -> PathBuf {
+        self.data.join("imports")
+    }
+
     pub fn sources(&self) -> PathBuf {
         self.data.join("sources")
     }
