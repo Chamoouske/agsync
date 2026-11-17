@@ -7,7 +7,6 @@ use std::process::{Command, Stdio};
 use anyhow::Context;
 
 use crate::paths::Dirs;
-use crate::tmp::TempDir;
 use crate::update::{self, Version};
 
 /// Where the release assets live; `AGSYNC_INSTALL_BASE_URL` overrides it, as in the
@@ -127,15 +126,11 @@ fn download(version: Version, asset: &str) -> anyhow::Result<Vec<u8>> {
     let base = std::env::var("AGSYNC_INSTALL_BASE_URL").unwrap_or(INSTALL_BASE_URL.to_string());
     let proto = protocol(&base)?;
     let url = format!("{}/download/v{version}", base.trim_end_matches('/'));
-    let tmp = TempDir::new("agsync-update")?;
-    let file = tmp.path().join(asset);
-    let sums = tmp.path().join("SHA256SUMS");
-    curl(&format!("{url}/{asset}"), &file, proto)?;
-    curl(&format!("{url}/SHA256SUMS"), &sums, proto)?;
-    let sums = std::fs::read_to_string(&sums).context("ler SHA256SUMS")?;
+    let bytes = curl(&format!("{url}/{asset}"), proto)?;
+    let sums = curl(&format!("{url}/SHA256SUMS"), proto)?;
+    let sums = String::from_utf8_lossy(&sums);
     let expected =
         expected_hash(&sums, asset).with_context(|| format!("SHA256SUMS nao tem {asset}"))?;
-    let bytes = std::fs::read(&file).with_context(|| format!("ler {}", file.display()))?;
     let actual = crate::hash::hash_bytes(&bytes);
     if actual != expected {
         anyhow::bail!(
@@ -158,13 +153,12 @@ fn protocol(base: &str) -> anyhow::Result<&'static str> {
     anyhow::bail!("AGSYNC_INSTALL_BASE_URL '{base}' recusada: use https:// (ou file://)")
 }
 
-/// Downloads `url` to `dest`; `-q` first so no `.curlrc` changes the options.
-fn curl(url: &str, dest: &Path, proto: &str) -> anyhow::Result<()> {
+/// Body of `url`, kept in memory: nothing lands on disk before the hash is checked.
+/// `-q` comes first so no `.curlrc` changes the options.
+fn curl(url: &str, proto: &str) -> anyhow::Result<Vec<u8>> {
     let exe = crate::which::require("curl").map_err(anyhow::Error::msg)?;
     let out = Command::new(exe)
         .args(["-q", "--proto", proto, "--proto-redir", proto, "-fsSL"])
-        .arg("-o")
-        .arg(dest)
         .arg(url)
         .stdin(Stdio::null())
         .output()
@@ -175,7 +169,7 @@ fn curl(url: &str, dest: &Path, proto: &str) -> anyhow::Result<()> {
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
-    Ok(())
+    Ok(out.stdout)
 }
 
 /// Hash of `asset` in a `SHA256SUMS` text: lines `<hash> <name>` or `<hash> *<name>`.
