@@ -69,7 +69,7 @@ impl Imports {
 }
 
 /// One plugin entry from a marketplace.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Plugin {
     pub name: String,
@@ -79,7 +79,7 @@ pub struct Plugin {
 }
 
 /// Where a plugin is published.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Marketplace {
     /// Git URL, GitHub shorthand or a local folder with `.claude-plugin`.
@@ -90,7 +90,7 @@ pub struct Marketplace {
 }
 
 /// One MCP server entry.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mcp {
     pub profiles: Option<Vec<String>>,
@@ -104,7 +104,7 @@ pub struct Mcp {
 }
 
 /// Git source to build an MCP server from.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Source {
     pub git: String,

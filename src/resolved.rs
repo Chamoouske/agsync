@@ -35,7 +35,8 @@ pub struct Watched {
 }
 
 impl Watched {
-    fn new(url: &str, git_ref: &str, sha: &str) -> Option<Watched> {
+    /// `None` when `git_ref` is a full SHA: it never moves.
+    pub fn new(url: &str, git_ref: &str, sha: &str) -> Option<Watched> {
         let moves = !git::is_full_sha(git_ref);
         moves.then(|| Watched {
             url: url.to_string(),
