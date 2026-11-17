@@ -283,6 +283,7 @@ impl Manifest {
             anyhow::bail!("args e env so valem com command");
         }
         if let Some(source) = &mcp.source {
+            check_git_url(&source.git, "source.git")?;
             check_ref(source.git_ref.as_deref(), "source.git")?;
         }
         Ok(())
@@ -291,7 +292,8 @@ impl Manifest {
     fn validate_skill(&self, skill: &Skill) -> anyhow::Result<String> {
         self.check_profiles(&skill.profiles)?;
         check_agents(&skill.agents)?;
-        if skill.git.is_some() {
+        if let Some(git) = &skill.git {
+            check_git_url(git, "git")?;
             check_ref(skill.git_ref.as_deref(), "git")?;
         }
         if skill.path.is_none() {
@@ -413,6 +415,9 @@ fn check_ref(git_ref: Option<&str>, field: &str) -> anyhow::Result<()> {
     let Some(git_ref) = git_ref.filter(|r| !r.trim().is_empty()) else {
         anyhow::bail!("{field} exige ref");
     };
+    if git_ref.trim_start().starts_with('-') {
+        anyhow::bail!("ref '{git_ref}' nao pode comecar com -");
+    }
     if crate::git::is_short_sha(git_ref) {
         anyhow::bail!("ref '{git_ref}' parece SHA abreviado; use o SHA completo");
     }
@@ -420,10 +425,14 @@ fn check_ref(git_ref: Option<&str>, field: &str) -> anyhow::Result<()> {
 }
 
 /// Rejects a git URL carrying a password or token: git credentials belong to the
-/// machine's credential helper, not to `agsync.yaml`.
+/// machine's credential helper, not to `agsync.yaml`. Also rejects one starting with
+/// `-`, which `git` would read as an option.
 fn check_git_url(git: &str, field: &str) -> anyhow::Result<()> {
     if git.trim().is_empty() {
         anyhow::bail!("{field} vazio");
+    }
+    if git.trim_start().starts_with('-') {
+        anyhow::bail!("{field} '{git}' nao pode comecar com -");
     }
     if let Some((scheme, rest)) = git.split_once("://") {
         let authority = rest.split(['/', '\\']).next().unwrap_or("");
@@ -960,6 +969,85 @@ imports:
     - git: https://x/r.git
 "#;
         assert!(Manifest::parse(ok).is_ok(), "{}", err(ok));
+    }
+
+    #[test]
+    fn every_git_field_rejects_options_and_credentials() {
+        let cases = [
+            "mcps:
+  a:
+    command: x
+    source: {git: '--upload-pack=x', ref: v1}
+",
+            "mcps:
+  a:
+    command: x
+    source: {git: https://x/r.git, ref: '-x'}
+",
+            "mcps:
+  a:
+    command: x
+    source: {git: 'https://u:t@x/r.git', ref: v1}
+",
+            "skills:
+  - git: '--upload-pack=x'
+    ref: v1
+    path: s
+",
+            "skills:
+  - git: https://x/r.git
+    ref: '--upload-pack=x'
+    path: s
+",
+            "skills:
+  - git: 'https://tok@x/r.git'
+    ref: v1
+    path: s
+",
+            "plugins:
+  - name: p
+    marketplace: {git: '-x', ref: v1}
+",
+            "plugins:
+  - name: p
+    marketplace: {git: https://x/r.git, ref: '-x'}
+",
+            "imports:
+  mcps:
+    - git: '--upload-pack=x'
+",
+            "imports:
+  mcps:
+    - git: https://x/r.git
+      ref: '-x'
+",
+        ];
+        for case in cases {
+            let msg = err(&format!(
+                "version: 1
+{case}"
+            ));
+            let reason = msg.contains("nao pode comecar com -") || msg.contains("credenciais");
+            assert!(reason && msg.contains("linha"), "{case}: {msg}");
+        }
+        let source_creds = err(&format!(
+            "version: 1
+{}",
+            cases[2]
+        ));
+        assert!(
+            source_creds.contains("source.git com credenciais"),
+            "{source_creds}"
+        );
+        let skill_creds = err(&format!(
+            "version: 1
+{}",
+            cases[5]
+        ));
+        assert!(
+            skill_creds.contains("skill: git com credenciais"),
+            "{skill_creds}"
+        );
     }
 
     #[test]
