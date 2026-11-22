@@ -78,6 +78,20 @@ impl PluginSpec {
         }
     }
 
+    /// What `git clone` takes: `owner/repo` and `github:owner/repo` become a GitHub
+    /// https URL; URLs and local folders stay as written.
+    pub fn clone_url(&self) -> String {
+        let git = &self.git;
+        if let Some(repo) = git.strip_prefix("github:") {
+            return format!("https://github.com/{repo}");
+        }
+        let is_shorthand = !git.contains("://") && !git.starts_with("git@") && !self.is_local();
+        if is_shorthand {
+            return format!("https://github.com/{git}");
+        }
+        git.clone()
+    }
+
     /// True when the marketplace is a folder on this machine. Claude Code reads it in
     /// place and does not accept a ref for it.
     pub fn is_local(&self) -> bool {
@@ -188,6 +202,19 @@ mod tests {
         assert_eq!(github.opencode_package(), "github:owner/repo#main");
         let shorthand = PluginSpec::new("p1", "owner/repo", "main");
         assert_eq!(shorthand.opencode_package(), "github:owner/repo#main");
+    }
+
+    #[test]
+    fn clone_url_expands_github_shorthand_only() {
+        let url = |git: &str| PluginSpec::new("p", git, "v1").clone_url();
+        assert_eq!(url("owner/repo"), "https://github.com/owner/repo");
+        assert_eq!(url("github:owner/repo"), "https://github.com/owner/repo");
+        assert_eq!(
+            url("https://x.example/t/p.git"),
+            "https://x.example/t/p.git"
+        );
+        assert_eq!(url("git@x.example:t/p.git"), "git@x.example:t/p.git");
+        assert_eq!(url("./market"), "./market");
     }
 
     #[test]
