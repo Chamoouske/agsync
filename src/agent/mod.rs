@@ -7,11 +7,13 @@ use crate::mcp::{McpSpec, RefSpot};
 use crate::plugin::PluginSpec;
 use crate::state::LinkMode;
 
+pub mod antigravity;
 pub mod backup;
 pub mod claude;
 pub mod cli;
 pub mod codex;
 pub mod hermes;
+pub mod json_config;
 pub mod link;
 pub mod opencode;
 
@@ -98,11 +100,12 @@ pub type Detect = fn() -> Result<Box<dyn Adapter>, String>;
 
 /// Every agent agsync knows, in the order they are planned and shown. Adding an agent
 /// is one module plus one line here.
-pub const AGENTS: [(&str, Detect); 4] = [
+pub const AGENTS: [(&str, Detect); 5] = [
     ("claude", || boxed(claude::Claude::detect())),
     ("codex", || boxed(codex::Codex::detect())),
     ("opencode", || boxed(opencode::OpenCode::detect())),
     ("hermes", || boxed(hermes::Hermes::detect())),
+    ("antigravity", || boxed(antigravity::Antigravity::detect())),
 ];
 
 /// Names of every known agent, in table order.
