@@ -1,7 +1,8 @@
 //! Shared end-to-end helpers: temp dirs for every config, local git repos as remotes.
 //!
 //! No real agent config is ever used: every `claude`, agent CLI and `agsync` run gets a
-//! temp home and temp config dirs for Claude Code, Codex, OpenCode and Hermes.
+//! temp home and temp config dirs for Claude Code, Codex, OpenCode, Hermes, Gemini CLI
+//! and Antigravity (both under the temp home).
 
 #![allow(dead_code)]
 
@@ -69,6 +70,7 @@ impl Env {
             .env("AGSYNC_OPENCODE_CONFIG_DIR", &self.opencode_dir)
             .env_remove("OPENCODE_CONFIG_DIR")
             .env("HERMES_HOME", &self.hermes_dir)
+            .env("GEMINI_CLI_HOME", &self.home)
             .env("HOME", &self.home)
             .env("USERPROFILE", &self.home)
             .env("XDG_CONFIG_HOME", self.home.join(".config"))

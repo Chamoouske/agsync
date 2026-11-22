@@ -1,6 +1,7 @@
-//! Stand-in for the `codex` and `hermes` CLIs in tests, which never run the real ones.
+//! Stand-in for the `codex`, `hermes`, `gemini` and `agy` CLIs in tests, which never run
+//! the real ones.
 //!
-//! Tests copy this binary as `codex` or `hermes` into a temp dir put first in `PATH`;
+//! Tests copy this binary under one of those names into a temp dir put first in `PATH`;
 //! the file name picks the agent. Each call appends its arguments as one JSON line to
 //! `$FAKE_AGENT_LOG` (agent name first), then applies to the config file the effect the real CLI has.
 //! The fake Hermes writes its YAML back as JSON (valid YAML): unlike the real one, it
@@ -19,6 +20,8 @@ fn main() {
     let result = match agent.as_str() {
         "codex" => codex(&args),
         "hermes" => hermes(&args),
+        "gemini" => gemini(&args),
+        "agy" => agy(&args),
         other => Err(format!("agente falso desconhecido: {other}")),
     };
     if let Err(e) = result {
@@ -134,4 +137,65 @@ fn hermes(args: &[String]) -> Result<(), String> {
     }
     let yaml = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
     std::fs::write(&file, yaml).map_err(|e| e.to_string())
+}
+
+/// `gemini extensions`: installs copy `gemini-extension.json` and record the source.
+fn gemini(args: &[String]) -> Result<(), String> {
+    let extensions = env_dir("GEMINI_CLI_HOME")
+        .join(".gemini")
+        .join("extensions");
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        ["extensions", "--help"] => Ok(()),
+        ["extensions", "install", source, rest @ ..] => {
+            if !rest.contains(&"--consent") {
+                return Err("gemini falso: install sem --consent".into());
+            }
+            let git_ref = rest
+                .iter()
+                .position(|w| *w == "--ref")
+                .map(|i| rest[i + 1].to_string());
+            let manifest = PathBuf::from(source).join("gemini-extension.json");
+            let dir = extensions.join(manifest_name(&manifest)?);
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            std::fs::copy(&manifest, dir.join("gemini-extension.json"))
+                .map_err(|e| e.to_string())?;
+            let meta = serde_json::json!({"source": source, "type": "local", "ref": git_ref});
+            std::fs::write(dir.join(".gemini-extension-install.json"), meta.to_string())
+                .map_err(|e| e.to_string())
+        }
+        ["extensions", "uninstall", name] => {
+            std::fs::remove_dir_all(extensions.join(name)).map_err(|e| e.to_string())
+        }
+        _ => Err(format!("gemini falso: comando nao suportado {args:?}")),
+    }
+}
+
+/// `agy plugin`: installs copy `plugin.json` into `~/.gemini/config/plugins/<name>`.
+fn agy(args: &[String]) -> Result<(), String> {
+    let home = env_dir(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
+    let plugins = home.join(".gemini").join("config").join("plugins");
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        ["plugin", "--help"] => Ok(()),
+        ["plugin", "install", source] => {
+            let manifest = PathBuf::from(source).join("plugin.json");
+            let dir = plugins.join(manifest_name(&manifest)?);
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            std::fs::copy(&manifest, dir.join("plugin.json"))
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        ["plugin", "uninstall", name] => {
+            std::fs::remove_dir_all(plugins.join(name)).map_err(|e| e.to_string())
+        }
+        _ => Err(format!("agy falso: comando nao suportado {args:?}")),
+    }
+}
+
+fn manifest_name(file: &std::path::Path) -> Result<String, String> {
+    let text = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let name = value["name"].as_str().ok_or("manifesto sem name")?;
+    Ok(name.to_string())
 }
