@@ -1,19 +1,17 @@
-//! Antigravity adapter: the `agy` CLI and the IDE share one user config.
+//! Antigravity CLI (`agy`) adapter.
 //!
-//! Detected by `agy` in PATH, else by the IDE launcher `antigravity`. Config lives in
-//! `~/.gemini/config`.
+//! Detected by `agy` in PATH. Config lives in `~/.gemini/config`.
 //!
 //! MCP servers are the top-level `mcpServers` of `mcp_config.json`, edited in place
-//! with comments kept, because Antigravity has no non-interactive MCP command. Remote
-//! servers use `serverUrl` (streamable HTTP). Antigravity does not expand `${VAR}`, so
-//! secret values are written into the file. Skills are folders under `skills/`; the IDE
-//! also loads `~/.gemini/antigravity/skills` and the CLI `~/.gemini/antigravity-cli/skills`
-//! and `~/.gemini/skills` (the Gemini CLI folder).
+//! with comments kept, because `agy` has no non-interactive MCP command. Remote servers
+//! use `serverUrl` (streamable HTTP). Antigravity does not expand `${VAR}`, so secret
+//! values are written into the file. Skills are folders under `skills/`; `agy` also
+//! loads `~/.gemini/antigravity-cli/skills` and `~/.gemini/skills`.
 //!
-//! Plugins need `agy`: `agy plugin install <folder>` and `agy plugin uninstall <name>`.
-//! `agy` takes no ref, so a remote marketplace is checked out at the ref first and the
-//! plugin is installed from that checkout. The `name` in `plugin.json` is the plugin
-//! name. agsync marks what it installed with `plugins/<name>/.agsync-source.json`.
+//! Plugins: `agy plugin install <folder>` and `agy plugin uninstall <name>`. `agy` takes
+//! no ref, so a remote marketplace is checked out at the ref first and the plugin is
+//! installed from that checkout. The `name` in `plugin.json` is the plugin name. agsync
+//! marks what it installed with `plugins/<name>/.agsync-source.json`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -29,28 +27,24 @@ use crate::plugin::PluginSpec;
 const URL_KEY: &str = "serverUrl";
 const MARK: &str = ".agsync-source.json";
 
-/// Antigravity user config.
+/// Antigravity CLI user config.
 #[derive(Debug)]
 pub struct Antigravity {
-    /// `agy` when found; `None` with only the IDE, which cannot install plugins.
-    agy: Option<PathBuf>,
+    agy: PathBuf,
     gemini_dir: PathBuf,
     config: JsonConfig,
 }
 
 impl Antigravity {
-    /// Finds `agy` or `antigravity` in PATH.
+    /// Finds `agy` in PATH.
     pub fn detect() -> Result<Antigravity, String> {
-        let agy = crate::which::find("agy");
-        if agy.is_none() {
-            crate::which::require("antigravity").map_err(|e| format!("agy e {e}"))?;
-        }
+        let agy = crate::which::require("agy")?;
         let home = crate::paths::home().map_err(|e| e.to_string())?;
         Ok(Antigravity::at(agy, home.join(".gemini")))
     }
 
     /// Adapter for an explicit `~/.gemini` folder.
-    pub fn at(agy: Option<PathBuf>, gemini_dir: PathBuf) -> Antigravity {
+    pub fn at(agy: PathBuf, gemini_dir: PathBuf) -> Antigravity {
         let config = JsonConfig::new(
             gemini_dir.join("config").join("mcp_config.json"),
             "mcpServers",
@@ -70,29 +64,25 @@ impl Antigravity {
         Ok(self.config.servers()?.get(name).map(entry_hash))
     }
 
-    fn command(&self, args: &[&str]) -> anyhow::Result<Command> {
-        let Some(agy) = &self.agy else {
-            anyhow::bail!("agy nao encontrado no PATH");
-        };
-        let mut cmd = Command::new(agy);
+    fn command(&self, args: &[&str]) -> Command {
+        let mut cmd = Command::new(&self.agy);
         cmd.args(args);
-        Ok(cmd)
+        cmd
     }
 
     /// Runs `agy plugin install` from the marketplace folder, or from a checkout of
     /// the remote marketplace at the ref.
     fn install_from_source(&self, spec: &PluginSpec) -> anyhow::Result<()> {
         if spec.is_local() {
-            let cmd = self.command(&["plugin", "install", &spec.git])?;
+            let cmd = self.command(&["plugin", "install", &spec.git]);
             return cli::run(cmd, "agy plugin install", true);
         }
         let url = spec.clone_url();
         let sha = crate::git::resolve(&url, &spec.git_ref)?;
         let snapshot = crate::git::Snapshot::fetch(&url, &spec.git_ref, &sha)?;
         let folder = snapshot.path().to_string_lossy().to_string();
-        let installed = self
-            .command(&["plugin", "install", &folder])
-            .and_then(|cmd| cli::run(cmd, "agy plugin install", true));
+        let cmd = self.command(&["plugin", "install", &folder]);
+        let installed = cli::run(cmd, "agy plugin install", true);
         snapshot.close()?;
         installed
     }
@@ -122,7 +112,6 @@ impl Adapter for Antigravity {
     fn skill_dirs_read(&self) -> Vec<PathBuf> {
         vec![
             self.skills_dir(),
-            self.gemini_dir.join("antigravity").join("skills"),
             self.gemini_dir.join("antigravity-cli").join("skills"),
             self.gemini_dir.join("skills"),
         ]
@@ -149,10 +138,7 @@ impl Adapter for Antigravity {
     }
 
     fn plugin_support(&self) -> Result<(), String> {
-        let cmd = self
-            .command(&["plugin", "--help"])
-            .map_err(|_| "so o Antigravity CLI (`agy`) instala plugins".to_string())?;
-        cli::output(cmd, "agy plugin --help")
+        cli::output(self.command(&["plugin", "--help"]), "agy plugin --help")
             .map(|_| ())
             .map_err(|e| format!("`agy plugin` indisponivel: {e:#}"))
     }
@@ -200,7 +186,7 @@ impl Adapter for Antigravity {
         if !self.plugin_present(id)? {
             return Ok(());
         }
-        let cmd = self.command(&["plugin", "uninstall", id])?;
+        let cmd = self.command(&["plugin", "uninstall", id]);
         cli::run(cmd, "agy plugin uninstall", true)?;
         if self.plugin_present(id)? {
             anyhow::bail!("plugin '{id}' continua instalado no antigravity");
@@ -233,7 +219,7 @@ mod tests {
     #[test]
     fn reads_and_writes_mcp_config_without_cli() {
         let tmp = TempDir::new("agsync-test").unwrap();
-        let ag = Antigravity::at(None, tmp.path().into());
+        let ag = Antigravity::at("agy-not-called".into(), tmp.path().into());
         assert!(ag.mcps().unwrap().is_empty());
         let http = McpSpec::Http {
             url: "https://x/mcp".into(),
@@ -252,25 +238,19 @@ mod tests {
     }
 
     #[test]
-    fn plugins_need_agy_and_the_mark() {
+    fn installed_plugin_needs_the_mark_of_the_same_spec() {
         let tmp = TempDir::new("agsync-test").unwrap();
-        let ide_only = Antigravity::at(None, tmp.path().into());
-        let reason = ide_only.plugin_support().unwrap_err();
-        assert!(reason.contains("agy"), "{reason}");
-
+        let ag = Antigravity::at("agy-not-called".into(), tmp.path().into());
         let spec = PluginSpec::new("p", "owner/p", "v1");
-        assert_eq!(ide_only.plugin_installed(&spec).unwrap(), None);
-        let dir = ide_only.plugin_dir("p");
+        assert_eq!(ag.plugin_installed(&spec).unwrap(), None);
+        let dir = ag.plugin_dir("p");
         std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(ide_only.plugin_installed(&spec).unwrap(), None);
-        assert_eq!(ide_only.plugin_named("p").unwrap().as_deref(), Some("p"));
+        assert_eq!(ag.plugin_installed(&spec).unwrap(), None);
+        assert_eq!(ag.plugin_named("p").unwrap().as_deref(), Some("p"));
         let mark = json!({"hash": spec.hash()}).to_string();
         std::fs::write(dir.join(MARK), mark).unwrap();
-        assert_eq!(
-            ide_only.plugin_installed(&spec).unwrap().as_deref(),
-            Some("p")
-        );
+        assert_eq!(ag.plugin_installed(&spec).unwrap().as_deref(), Some("p"));
         let newer = PluginSpec::new("p", "owner/p", "v2");
-        assert_eq!(ide_only.plugin_installed(&newer).unwrap(), None);
+        assert_eq!(ag.plugin_installed(&newer).unwrap(), None);
     }
 }
