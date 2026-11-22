@@ -1,6 +1,6 @@
 # agsync
 
-O agsync aplica MCP servers, skills e plugins de um repositorio git de configuracao (o `agsync.yaml`) na configuracao de usuario dos agentes de codigo da maquina: Claude Code, Codex, OpenCode, Hermes, Gemini CLI e Antigravity. O repo de config pode importar itens de outros repos, por perfil.
+O agsync aplica MCP servers, skills e plugins de um repositorio git de configuracao (o `agsync.yaml`) na configuracao de usuario dos agentes de codigo da maquina: Claude Code, Codex, OpenCode, Hermes e Antigravity CLI. O repo de config pode importar itens de outros repos, por perfil.
 
 - So mexe no que ele mesmo escreveu. Isso fica registrado em `state.json`. Entradas manuais com o mesmo nome viram conflito e ficam como estao, a nao ser com `--adopt`.
 - Escreve pelo CLI do agente quando o CLI sabe fazer a mudanca. Senao, edita o arquivo preservando comentarios.
@@ -158,7 +158,7 @@ Campos:
   - remoto (HTTP): `url`, com `headers` opcional.
   - Defina exatamente um entre `command` e `url`.
   - `profiles`: o item vale so nesses perfis. Sem `profiles`, vale em todos.
-  - `agents`: o item vale so nesses agentes (`claude`, `codex`, `opencode`, `hermes`, `gemini`, `antigravity`). Sem `agents`, vale em todos.
+  - `agents`: o item vale so nesses agentes (`claude`, `codex`, `opencode`, `hermes`, `antigravity`). Sem `agents`, vale em todos.
   - `source`: o servidor e construido de um repo git.
     - `git` e `ref` sao obrigatorios. O `ref` aceita branch, tag ou SHA completo; SHA abreviado e recusado. URL com senha ou token embutido e recusada.
     - `requires`: programas que precisam estar no PATH. Se faltar algum, o item e pulado.
@@ -215,7 +215,7 @@ Um MCP, skill ou plugin instalado a mao que tem exatamente o mesmo nome, o mesmo
 
 Nome diferente, outro tipo (uma skill `x` nao corresponde a um MCP `x`) ou outro agente nunca contam como correspondencia. Se a substituicao de um item falha, o erro e mostrado, o item nao entra no `state.json` e continua como conflito no proximo `apply`.
 
-Plugins: no Claude Code, um plugin manual com o mesmo nome vindo de outro marketplace tambem conta, se for o unico com esse nome; o `--adopt` instala o do `agsync.yaml` e desinstala o manual. No OpenCode so conta o mesmo pacote. No Gemini CLI e no Antigravity conta a extensao ou o plugin instalado com o mesmo nome, de qualquer origem.
+Plugins: no Claude Code, um plugin manual com o mesmo nome vindo de outro marketplace tambem conta, se for o unico com esse nome; o `--adopt` instala o do `agsync.yaml` e desinstala o manual. No OpenCode so conta o mesmo pacote. No Antigravity conta o plugin instalado com o mesmo nome, de qualquer origem.
 
 Depois de um `rollback`, o `check` volta a acusar o commit remoto como pendente. Isso e esperado: rode `agsync apply` para voltar a ele.
 
@@ -350,13 +350,9 @@ Um agente e detectado pelo executavel no PATH. Um agente ausente e pulado e apar
 - **Hermes**:
   - MCPs: `hermes config set/unset mcp_servers.<nome>`.
   - Skills: `<HERMES_HOME>/skills`.
-- **Gemini CLI** (`gemini`):
-  - MCPs: o agsync edita `mcpServers` em `~/.gemini/settings.json` mantendo comentarios e as outras chaves. O `gemini mcp add` recebe env e headers como argumentos, o que exporia segredos na lista de processos. Remoto vira `httpUrl` (streamable HTTP); entrada com `url` (SSE) nao e escrita pelo agsync. O Gemini expande `${VAR}` sozinho, entao a referencia fica no arquivo.
-  - Skills: `~/.gemini/skills`. O Gemini tambem le `~/.agents/skills` (a pasta do Codex).
-  - Com `GEMINI_CLI_HOME`, tudo fica em `$GEMINI_CLI_HOME/.gemini`.
-- **Antigravity** (`agy` ou a IDE `antigravity`; os dois usam a mesma config):
-  - MCPs: o agsync edita `mcpServers` em `~/.gemini/config/mcp_config.json` mantendo comentarios, porque o Antigravity nao tem comando nao interativo para MCP. Remoto vira `serverUrl`. O Antigravity nao expande `${VAR}`, entao o valor do segredo e gravado no arquivo.
-  - Skills: `~/.gemini/config/skills`. A IDE tambem le `~/.gemini/antigravity/skills`, e o `agy` le `~/.gemini/antigravity-cli/skills` e `~/.gemini/skills` (a pasta do Gemini CLI).
+- **Antigravity CLI** (`agy`; a IDE sozinha nao e detectada):
+  - MCPs: o agsync edita `mcpServers` em `~/.gemini/config/mcp_config.json` mantendo comentarios, porque o `agy` nao tem comando nao interativo para MCP. Remoto vira `serverUrl`. O Antigravity nao expande `${VAR}`, entao o valor do segredo e gravado no arquivo.
+  - Skills: `~/.gemini/config/skills`. O `agy` tambem le `~/.gemini/antigravity-cli/skills` e `~/.gemini/skills`.
   - Depois do apply, no `agy`: `/mcp` e `/skills reload`.
 
 Skills sao copiadas para um cache em `<dados>/skills` e ligadas no agente. A ordem de tentativa e symlink, depois junction (Windows), depois copia.
@@ -373,8 +369,7 @@ So o que foi instalado pelo agsync e registrado no `state.json`. Plugin instalad
 | OpenCode | sim | `opencode plugin add/remove`, gravando o array `plugins` |
 | Codex | nao | o CLI nao instala plugin de forma nao interativa; o item e pulado com o motivo no `status` |
 | Hermes | nao | idem |
-| Gemini CLI | sim | extensoes: `gemini extensions install <git> --ref <ref> --consent` e `extensions uninstall` |
-| Antigravity | so com `agy` | `agy plugin install <pasta>` a partir de um checkout do marketplace na `ref`, e `agy plugin uninstall`; so com a IDE, o item e pulado com o motivo no `status` |
+| Antigravity CLI | sim | `agy plugin install <pasta>` a partir de um checkout do marketplace na `ref`, e `agy plugin uninstall` |
 
 - O `check` acusa plugin adicionado, com `ref` nova e removido do `agsync.yaml`.
 - O `diff` e a confirmacao do `apply` listam as mudancas de plugin por agente.
@@ -388,8 +383,8 @@ Limitacoes:
 - Marketplace em pasta local: o Claude le a pasta direto e nao aceita `ref` nela. A `ref` continua na identidade do plugin, entao troca-la ainda gera um `update`.
 - Trocar a `ref` de um marketplace remoto: o Claude nao troca a `ref` no lugar, e remover o marketplace desinstala todos os plugins dele. O agsync remove e readiciona o marketplace e reinstala o que gerencia, cada plugin no seu escopo. Se a `ref` nova nao puder ser adicionada, ele readiciona a `ref` antiga com os plugins e diz o que nao voltou. Se houver plugin fora do agsync no mesmo marketplace, ele recusa e pede a troca manual.
 - O marketplace em si fica registrado no Claude; o agsync nao remove marketplaces no `uninstall`.
-- Gemini CLI e Antigravity nao tem marketplace: `marketplace.git` e o repo (ou a pasta) do proprio plugin, e `name` precisa ser o `name` do `gemini-extension.json` ou do `plugin.json`. Um repo que serve aos dois tem os dois arquivos na raiz.
-- Gemini CLI e Antigravity nao trocam a `ref` no lugar: o agsync desinstala e instala de novo. Se a instalacao nova falhar, o plugin fica fora ate o proximo `apply`.
+- Antigravity nao tem marketplace: `marketplace.git` e o repo (ou a pasta) do proprio plugin, e `name` precisa ser o `name` do `plugin.json`.
+- O Antigravity nao troca a `ref` no lugar: o agsync desinstala e instala de novo. Se a instalacao nova falhar, o plugin fica fora ate o proximo `apply`.
 - Antigravity: o `agy` nao aceita `ref`, entao o agsync baixa o marketplace na `ref` e instala da pasta baixada. O que ele instalou fica marcado em `~/.gemini/config/plugins/<nome>/.agsync-source.json`; um plugin com o mesmo nome sem essa marca conta como instalacao manual.
 
 ## WSL
