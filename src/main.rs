@@ -14,13 +14,13 @@ struct Cli {
 enum Cmd {
     /// Set up this machine: machine.toml, repo access, schedule, shell hook, first apply.
     Init {
-        /// Git url of the config repo.
-        url: String,
+        /// Git url of the config repo; asked on the terminal when omitted.
+        url: Option<String>,
         /// Branch, tag or full commit SHA to follow (default: main).
         #[arg(long = "ref")]
         git_ref: Option<String>,
-        /// Active profile; repeat for several.
-        #[arg(long = "profile", required = true)]
+        /// Active profile; repeat for several. Asked on the terminal when omitted.
+        #[arg(long = "profile")]
         profiles: Vec<String>,
         /// Install the shell hook and apply without asking.
         #[arg(long)]

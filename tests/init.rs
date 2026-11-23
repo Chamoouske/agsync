@@ -145,3 +145,72 @@ fn init_help_documents_silent_update() {
     assert!(out.contains("--silent-update"), "{out}");
     assert!(out.contains("silentUpdate"), "{out}");
 }
+
+fn machine_toml(env: &Env) -> String {
+    std::fs::read_to_string(env.config.join("machine.toml")).unwrap()
+}
+
+#[test]
+fn init_without_arguments_asks_for_url_and_profiles() {
+    let (env, url) = codex_env("version: 1\n");
+    let input = format!("{url}\nwork, personal\n");
+    let (ok, out) = env.agsync_with_input(&["init", "--silent-update"], Some(&input));
+    assert!(ok, "{out}");
+    assert!(out.contains("URL do repo de config:"), "{out}");
+    assert!(out.contains("Perfis desta maquina"), "{out}");
+    assert!(out.contains("perfis ativos: work, personal"), "{out}");
+    assert!(out.contains("repo ok"), "{out}");
+    let machine = machine_toml(&env);
+    assert!(machine.contains("ref = \"main\""), "{machine}");
+}
+
+#[test]
+fn init_with_url_asks_only_for_profiles_and_keeps_the_ref() {
+    let (env, url) = codex_env("version: 1\n");
+    let (ok, out) = env.agsync_with_input(
+        &["init", &url, "--ref", "main", "--silent-update"],
+        Some("\n  \nwork\n"),
+    );
+    assert!(ok, "{out}");
+    assert!(!out.contains("URL do repo"), "{out}");
+    assert!(out.contains("perfis ativos: work"), "{out}");
+    let machine = machine_toml(&env);
+    assert!(
+        machine.contains(&format!("repo = {}", toml_str(&url))),
+        "{machine}"
+    );
+}
+
+#[test]
+fn init_with_profiles_asks_only_for_the_url() {
+    let (env, url) = codex_env("version: 1\n");
+    let input = format!("{url}\n");
+    let (ok, out) = env.agsync_with_input(
+        &[
+            "init",
+            "--profile",
+            "work",
+            "--profile",
+            "ci",
+            "--silent-update",
+        ],
+        Some(&input),
+    );
+    assert!(ok, "{out}");
+    assert!(out.contains("URL do repo de config:"), "{out}");
+    assert!(!out.contains("Perfis desta maquina"), "{out}");
+    assert!(out.contains("perfis ativos: work, ci"), "{out}");
+}
+
+#[test]
+fn init_without_answers_fails_before_writing_machine_toml() {
+    let env = Env::new();
+    let (ok, out) = env.agsync(&["init"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("entrada encerrada"), "{out}");
+    assert!(!env.config.join("machine.toml").exists());
+}
+
+fn toml_str(value: &str) -> String {
+    toml::Value::String(value.to_string()).to_string()
+}
