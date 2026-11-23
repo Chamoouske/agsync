@@ -1,7 +1,8 @@
 //! Shared end-to-end helpers: temp dirs for every config, local git repos as remotes.
 //!
 //! No real agent config is ever used: every `claude`, agent CLI and `agsync` run gets a
-//! temp home and temp config dirs for Claude Code, Codex, OpenCode and Hermes.
+//! temp home and temp config dirs for Claude Code, Codex, OpenCode and Hermes;
+//! Antigravity lives under the temp home.
 
 #![allow(dead_code)]
 
