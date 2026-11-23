@@ -72,10 +72,20 @@ O `init`:
 4. oferece o hook em cada shell;
 5. roda o primeiro `apply`.
 
+Sem a URL ou sem `--profile`, o `init` pergunta no terminal so o que faltou; o que foi passado nao e perguntado de novo:
+
+```sh
+agsync init
+# URL do repo de config: https://github.com/<org>/agent-config
+# Perfis desta maquina (separados por virgula): work, personal
+```
+
+Sem resposta (stdin fechado, sem terminal), o `init` para antes de gravar o `machine.toml`.
+
 Opcoes:
 
-- `--ref <branch|tag|sha>`: o padrao e `main`.
-- `--profile` pode repetir.
+- `--ref <branch|tag|sha>`: o padrao e `main`; nunca e perguntado.
+- `--profile` pode repetir; sem ele, os perfis sao perguntados.
 - `--yes`: instala o hook e aplica sem perguntar.
 - `--silent-update`: aplica as atualizacoes pendentes sem perguntar, como `agsync apply --yes`, tambem sem terminal. O hook de shell continua perguntando. O resultado (aplicados, pulados, falhas) continua impresso, e uma falha faz o `init` sair com erro.
 - `silentUpdate: true` no `agsync.yaml` tem o mesmo efeito para toda maquina que seguir o repo. Sem a opcao, vale o fluxo interativo.
@@ -185,7 +195,7 @@ Uma fonte em branch ou tag e seguida: um commit novo nela tambem aparece no `che
 
 | comando | o que faz |
 |---|---|
-| `agsync init <url> --profile P` | configura a maquina (veja acima) |
+| `agsync init [<url>] [--profile P]` | configura a maquina; pergunta a URL e os perfis que faltarem (veja acima) |
 | `agsync status` | commit aplicado e remoto, mudancas pendentes, desvios, conflitos e itens pulados |
 | `agsync diff` | o que o proximo `apply` muda, por agente |
 | `agsync apply [--yes] [--adopt]` | mostra o diff e os builds, pede confirmacao e aplica; `--adopt` substitui instalacoes manuais com o mesmo nome (veja abaixo) |

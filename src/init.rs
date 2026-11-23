@@ -6,15 +6,27 @@ use crate::git;
 use crate::machine::Machine;
 use crate::paths::Dirs;
 
-/// Runs every step. Returns false when a step failed.
+/// Runs every step. Returns false when a step failed. A missing `url` or empty
+/// `profiles` is asked on the terminal; given values are kept as they are.
 pub fn init(
-    url: String,
+    url: Option<String>,
     git_ref: Option<String>,
     profiles: Vec<String>,
     yes: bool,
     silent: bool,
 ) -> anyhow::Result<bool> {
     let dirs = Dirs::from_env()?;
+    let url = match url {
+        Some(url) => url,
+        None => crate::prompt::ask("URL do repo de config")?,
+    };
+    let profiles = if profiles.is_empty() {
+        split_profiles(&crate::prompt::ask(
+            "Perfis desta maquina (separados por virgula)",
+        )?)
+    } else {
+        profiles
+    };
     let machine = Machine::new(url, git_ref, profiles);
     let file = dirs.machine_file();
     println!("[1/5] machine.toml");
@@ -58,6 +70,14 @@ pub fn init(
     Ok(reachable && hooked && applied)
 }
 
+fn split_profiles(answer: &str) -> Vec<String> {
+    answer
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 fn first_apply(reachable: bool, yes: bool, silent: bool) -> bool {
     if !reachable {
         println!("pulado: repo inacessivel; corrija e rode `agsync apply`");
@@ -73,5 +93,18 @@ fn first_apply(reachable: bool, yes: bool, silent: bool) -> bool {
             eprintln!("apply falhou: {e:#}");
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_profiles_accepts_commas_and_spaces() {
+        assert_eq!(
+            split_profiles(" work, personal  ci,,"),
+            ["work", "personal", "ci"]
+        );
     }
 }
