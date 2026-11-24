@@ -53,6 +53,9 @@ jobs:
       - name: Test the pull request merge script
         run: scripts/test-merge-pr.sh
 
+      - name: Test the Conventional Commits check
+        run: scripts/test-check-conventional.sh
+
       - name: Check that the manifests match the published asset
         run: scripts/check-manifests.sh --remote
 
@@ -60,3 +63,25 @@ jobs:
         env:
           CHECK_JSONSCHEMA: pipx run check-jsonschema==0.33.0
         run: scripts/validate-manifest-schemas.sh
+
+  conventional-commits:
+    name: conventional commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the pull request with its history
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the pull request title and commit subjects
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          {
+            echo "$PR_TITLE"
+            git log --no-merges --format=%s "$BASE_SHA..$HEAD_SHA"
+          } | scripts/check-conventional.sh
