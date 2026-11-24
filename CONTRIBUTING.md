@@ -22,7 +22,7 @@ Sao os mesmos passos do CI. Para rodar sem mexer na sua maquina e para os testes
 - `stage` e promovido para `master` uma vez por dia, e o merge em `master` gera a release.
 - Commits seguem [Conventional Commits](https://www.conventionalcommits.org/): o tipo decide a proxima versao.
 - O PR so entra com os checks `check (ubuntu-latest)` e `check (windows-latest)` verdes.
-- Descreva a mudanca em `## [Unreleased]` no [`CHANGELOG.md`](CHANGELOG.md) quando ela importar para quem usa o agsync.
+- O titulo do PR e as mensagens dos commits seguem Conventional Commits; o [`CHANGELOG.md`](CHANGELOG.md) e gerado na release a partir dos commits, entao nao edite a mao.
 - Mudou a CLI ou o comportamento? Atualize a documentacao em `docs/` (veja [Esta documentacao](docs/src/contribuicao/documentacao.md)).
 
 Detalhes do fluxo e da CI em [Branches e CI](docs/src/contribuicao/branches-e-ci.md); releases e CHANGELOG em [Releases](docs/src/contribuicao/releases.md).

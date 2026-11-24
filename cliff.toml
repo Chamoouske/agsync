@@ -1,0 +1,49 @@
+[changelog]
+header = """
+# Changelog
+
+Todas as mudancas relevantes do agsync ficam neste arquivo.
+
+O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versoes seguem o [Versionamento Semantico](https://semver.org/lang/pt-BR/). As secoes novas sao geradas na release pelo [git-cliff](https://git-cliff.org/) a partir dos Conventional Commits: veja [Releases](https://chamoouske.github.io/agsync/contribuicao/releases.html#changelog).
+"""
+body = """
+{% set repo = "https://github.com/Chamoouske/agsync" -%}
+{% set name = version | default(value="Unreleased") | trim_start_matches(pat="v") -%}
+{% if version -%}
+## [{{ name }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## [{{ name }}]
+{% endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.breaking %}**Incompativel:** {% endif %}{{ commit.message | upper_first }}
+{%- endfor %}
+{% endfor %}
+{% if previous.version -%}
+[{{ name }}]: {{ repo }}/compare/{{ previous.version }}...{{ version | default(value="HEAD") }}
+{% elif version -%}
+[{{ name }}]: {{ repo }}/releases/tag/{{ version }}
+{% endif -%}
+"""
+trim = false
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+filter_commits = true
+protect_breaking_commits = true
+tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
+topo_order = false
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^Merge ", skip = true },
+  { message = "^chore\\((packaging|release)\\)", skip = true },
+  { message = "^feat", group = "<!-- 0 -->Adicionado" },
+  { message = "^(perf|refactor)", group = "<!-- 1 -->Alterado" },
+  { message = "^fix", group = "<!-- 3 -->Corrigido" },
+  { message = "^docs", group = "<!-- 4 -->Documentacao" },
+  { message = "^(ci|build)", group = "<!-- 5 -->CI" },
+  { message = "^chore", group = "<!-- 6 -->Manutencao" },
+  { message = "^(test|style)", skip = true },
+]

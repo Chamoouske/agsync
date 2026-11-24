@@ -2,20 +2,7 @@
 
 Todas as mudancas relevantes do agsync ficam neste arquivo.
 
-O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versoes seguem o [Versionamento Semantico](https://semver.org/lang/pt-BR/). Como manter este arquivo: veja [Releases](https://chamoouske.github.io/agsync/contribuicao/releases.html#changelog).
-
-## [Unreleased]
-
-### Adicionado
-
-- Documentacao em mdBook em `docs/`, publicada em <https://chamoouske.github.io/agsync/> a partir de `master`.
-- Licenca MIT, `CONTRIBUTING.md`, este `CHANGELOG.md` e modelos de issue e de PR.
-
-### Alterado
-
-- README enxuto, com link para a documentacao completa.
-- O log do merge da promocao mostra qual caminho foi seguido.
-- Manifests do Scoop e do WinGet declaram a licenca MIT.
+O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versoes seguem o [Versionamento Semantico](https://semver.org/lang/pt-BR/). As secoes novas sao geradas na release pelo [git-cliff](https://git-cliff.org/) a partir dos Conventional Commits: veja [Releases](https://chamoouske.github.io/agsync/contribuicao/releases.html#changelog).
 
 ## [0.14.2] - 2026-11-24
 
@@ -170,7 +157,6 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - `check` periodico pelo Agendador de Tarefas, timer do systemd ou cron, com notificacao do sistema.
 - Instaladores `install.ps1` e `install.sh`.
 
-[Unreleased]: https://github.com/Chamoouske/agsync/compare/v0.14.2...HEAD
 [0.14.2]: https://github.com/Chamoouske/agsync/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/Chamoouske/agsync/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/Chamoouske/agsync/compare/v0.13.0...v0.14.0
