@@ -21,6 +21,14 @@ Sem tag nenhuma, vale a versao do `Cargo.toml`.
 5. Validados, o `agsync.json` do Scoop e anexado a release (`gh release upload --clobber`), e os manifests vao para a branch `release/manifests-v<versao>` com um PR para `master`, com auto-merge (squash, apagando a branch): o GitHub faz o merge quando os checks obrigatorios passarem. Se nao conseguir ligar o auto-merge, o job deixa um aviso e o PR fica aberto para merge na mao. O merge desse PR nao dispara outra release, porque `packaging/` esta no `paths-ignore`, mas dispara o `sync-stage`, que leva os manifests novos para `stage`.
 6. O job `winget` esta desligado: o agsync nao e distribuido pelo WinGet. Ele so roda com a variavel de repositorio `WINGET_SUBMIT` igual a `true` (Settings > Secrets and variables > Actions > Variables) e, nesse caso, envia os arquivos de `packaging/winget` para `microsoft/winget-pkgs` com `wingetcreate submit`; se a versao ja existe la, nao faz nada. Os arquivos de `packaging/winget` continuam sendo atualizados e validados a cada release, para o job poder ser religado sem retrabalho.
 
+## Changelog
+
+O [`CHANGELOG.md`](../changelog.md), na raiz do repo, segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e e mantido a mao; o workflow `release` nao mexe nele.
+
+- Todo PR que muda algo que importa para quem usa o agsync adiciona uma linha em `## [Unreleased]`, na categoria certa (`Adicionado`, `Alterado`, `Removido`, `Corrigido`, `Seguranca`). Mudancas so de CI, testes ou refatoracao interna ficam de fora.
+- Depois que a release sai, um PR para `stage` move as linhas de `## [Unreleased]` que entraram na release para `## [<versao>] - <data>`, com a versao e a data da release, mantem `## [Unreleased]` no topo so com o resto e atualiza os links de comparacao no fim do arquivo (`[Unreleased]` passa a comparar a partir da tag nova).
+- A versao so e conhecida quando a release sai (veja [Versao](#versao)), por isso o `CHANGELOG.md` e fechado depois, e nao no PR de promocao.
+
 ## Falhas nos manifests
 
 Os jobs `manifests` e `winget` rodam depois da release, entao uma falha neles nao desfaz nem bloqueia a release. O job que falhou fica vermelho no run e deixa um erro `release v<versao> is published, but ...` dizendo o que nao foi atualizado. Corrija a causa e use "Re-run failed jobs" no run; os dois jobs podem rodar de novo (o anexo usa `--clobber`, a branch e reenviada e o PR existente e reaproveitado). Ate isso, `releases/latest/download/agsync.json` nao existe na release nova.

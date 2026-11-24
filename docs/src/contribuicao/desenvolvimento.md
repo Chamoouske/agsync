@@ -57,3 +57,4 @@ scripts/test-next-version.sh
 - Mensagens para o usuario em portugues, sem acentos; o texto de `--help` da CLI e os doc comments em ingles.
 - Documentacao de codigo so com doc comments (`//!` e `///`).
 - Commits seguem Conventional Commits: o tipo decide a proxima versao (veja [Releases](releases.md)).
+- Mudancas que importam para quem usa o agsync entram em `## [Unreleased]` no `CHANGELOG.md` (veja [Changelog](releases.md#changelog)).

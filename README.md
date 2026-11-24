@@ -79,7 +79,7 @@ Detalhes e riscos em [Solucao de problemas](docs/src/solucao-de-problemas.md#mic
 
 ## Contribuindo
 
-PRs vao para `stage`; hotfixes para `master`. Compilar, testar, CI e releases: veja [Contribuicao](docs/src/contribuicao/desenvolvimento.md).
+PRs vao para `stage`; hotfixes para `master`. Compilar, testar, CI e releases: [Contribuicao](docs/src/contribuicao/desenvolvimento.md). Mudancas por versao no [CHANGELOG.md](CHANGELOG.md).
 
 ## Licenca
 
