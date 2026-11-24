@@ -11,7 +11,7 @@ O `doctor` aponta a maior parte dos problemas de ambiente; o `status` mostra ite
 
 ## Microsoft Defender e SmartScreen
 
-O binario do Windows nao tem assinatura de codigo e chama o PowerShell por dentro (por exemplo, para achar os perfis do PowerShell). Por isso o classificador de aprendizado de maquina do Microsoft Defender pode por o `agsync.exe` em quarentena (por exemplo, como `Trojan:Win32/Bearfoos.A!ml`), ou o SmartScreen pode avisar sobre um aplicativo desconhecido. E um falso positivo conhecido, mas confira antes de liberar.
+O binario do Windows nao tem assinatura de codigo e chama o PowerShell por dentro (por exemplo, para achar os perfis do PowerShell). Por isso o classificador de aprendizado de maquina do Microsoft Defender pode por o `agsync.exe` em quarentena (por exemplo, como `Trojan:Win32/Bearfoos.A!ml`), ou o SmartScreen pode avisar sobre um aplicativo desconhecido. E um falso positivo conhecido e ainda acontece nas versoes atuais, mas confira antes de liberar.
 
 Sinais: o `install.ps1` termina com `... sumiu ou nao executa depois da instalacao`, o `agsync update` volta para o binario anterior, ou o `agsync.exe` some da pasta.
 
