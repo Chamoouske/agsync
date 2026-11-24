@@ -30,7 +30,8 @@
         "do_not_enforce_on_create": false,
         "required_status_checks": [
           { "context": "check (ubuntu-latest)", "integration_id": 15368 },
-          { "context": "check (windows-latest)", "integration_id": 15368 }
+          { "context": "check (windows-latest)", "integration_id": 15368 },
+          { "context": "conventional commits", "integration_id": 15368 }
         ]
       }
     }
