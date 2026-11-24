@@ -58,3 +58,5 @@ scripts/test-next-version.sh
 - Documentacao de codigo so com doc comments (`//!` e `///`).
 - Commits seguem Conventional Commits: o tipo decide a proxima versao (veja [Releases](releases.md)).
 - Mudancas que importam para quem usa o agsync entram em `## [Unreleased]` no `CHANGELOG.md` (veja [Changelog](releases.md#changelog)).
+
+O [`CONTRIBUTING.md`](https://github.com/Chamoouske/agsync/blob/master/CONTRIBUTING.md) na raiz do repo resume esta secao para quem chega pelo GitHub.
