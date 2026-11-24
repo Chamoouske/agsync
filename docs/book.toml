@@ -1,0 +1,13 @@
+[book]
+title = "agsync"
+authors = ["agsync contributors"]
+language = "pt-BR"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/Chamoouske/agsync"
+edit-url-template = "https://github.com/Chamoouske/agsync/edit/stage/docs/{path}"
