@@ -1,6 +1,6 @@
 # Montar o repo de config
 
-O repo de config e um repo git comum com um `agsync.yaml` na raiz. Todas as maquinas que fazem `agsync init` com ele passam a segui-lo.
+O repo de config é um repo git comum com um `agsync.yaml` na raiz. Todas as máquinas que fazem `agsync init` com ele passam a segui-lo.
 
 ## 1. Crie o repo e o agsync.yaml
 
@@ -32,12 +32,12 @@ skills:
   - path: skills/grug-brain-code
 ```
 
-- `version` e sempre `1`.
+- `version` é sempre `1`.
 - `profiles` lista todos os perfis que os itens podem citar.
 - Cada MCP tem `command` (stdio) ou `url` (HTTP), nunca os dois.
-- Cada skill e uma pasta com `SKILL.md`.
+- Cada skill é uma pasta com `SKILL.md`.
 
-A lista completa de campos esta em [agsync.yaml](../referencia/agsync-yaml.md).
+A lista completa de campos está em [agsync.yaml](../referencia/agsync-yaml.md).
 
 ## 2. Skills de outro repo
 
@@ -56,9 +56,9 @@ skills:
     name: team-review
 ```
 
-- Com `paths`, cada pasta vira uma skill com o nome do ultimo segmento. O repo e baixado uma vez so.
+- Com `paths`, cada pasta vira uma skill com o nome do último segmento. O repo é baixado uma vez só.
 - Com `path`, `name` troca o nome da skill.
-- Uma `ref` de branch ou tag e seguida: um commit novo nela tambem aparece no `check`. Use o SHA completo para fixar.
+- Uma `ref` de branch ou tag é seguida: um commit novo nela também aparece no `check`. Use o SHA completo para fixar.
 
 ## 3. Restrinja por agente ou perfil
 
@@ -74,7 +74,7 @@ Sem `profiles`, o item vale em todos os perfis. Sem `agents`, em todos os agente
 
 ## 4. Proteja a branch
 
-Quem escreve no repo de config decide o que roda nas maquinas que o seguem (veja [Seguranca](../explicacao/seguranca.md)). Proteja a branch seguida com revisao obrigatoria de pull request.
+Quem escreve no repo de config decide o que roda nas máquinas que o seguem (veja [Segurança](../explicacao/seguranca.md)). Proteja a branch seguida com revisão obrigatória de pull request.
 
 ## 5. Valide
 
@@ -84,4 +84,4 @@ O agsync valida o `agsync.yaml` inteiro antes de planejar. Um erro aponta a linh
 erro: agsync.yaml linha 12: mcp 'context7': defina exatamente um entre command e url
 ```
 
-Para conferir sem aplicar, rode `agsync diff` numa maquina que ja fez `init`. Um `agsync.yaml` invalido no remoto tambem aparece no `check` como pendencia, e nada e aplicado.
+Para conferir sem aplicar, rode `agsync diff` numa máquina que já fez `init`. Um `agsync.yaml` inválido no remoto também aparece no `check` como pendência, e nada é aplicado.

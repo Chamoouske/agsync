@@ -1,8 +1,8 @@
 # Ajuda da CLI (gerada)
 
-Saida de `agsync <comando> --help`, gerada por `docs/gen-cli-help.sh`. Nao edite a mao: rode o script depois de mudar a CLI. O CI falha se este arquivo estiver desatualizado.
+Saída de `agsync <comando> --help`, gerada por `docs/gen-cli-help.sh`. Não edite à mão: rode o script depois de mudar a CLI. O CI falha se este arquivo estiver desatualizado.
 
-O texto de ajuda da CLI e em ingles; a explicacao de cada comando esta em [Comandos](cli.md).
+O texto de ajuda da CLI é em inglês; a explicação de cada comando está em [Comandos](cli.md).
 
 ## `agsync`
 
