@@ -50,3 +50,4 @@
 ---
 
 [Solucao de problemas](solucao-de-problemas.md)
+[Changelog](changelog.md)

@@ -29,4 +29,8 @@ Voce descreve o que quer em um arquivo `agsync.yaml`, na raiz de um repo git. Ca
 2. Siga o [Primeiro uso](primeiros-passos/primeiro-uso.md).
 3. Consulte a [Referencia](referencia/cli.md) quando precisar de um detalhe.
 
-Algo deu errado? Veja [Solucao de problemas](solucao-de-problemas.md).
+Algo deu errado? Veja [Solucao de problemas](solucao-de-problemas.md). O que mudou em cada versao esta no [Changelog](changelog.md).
+
+## Licenca
+
+O agsync e distribuido sob a [licenca MIT](https://github.com/Chamoouske/agsync/blob/master/LICENSE).

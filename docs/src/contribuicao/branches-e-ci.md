@@ -34,7 +34,7 @@ gh api -X PUT repos/Chamoouske/agsync/rulesets/27474564 --input .github/rulesets
 | workflow | quando | o que faz |
 |---|---|---|
 | `ci` | push, PR e chamado pelo `release` | job `check` (fmt, clippy, testes) em Windows e Linux; job `manifests` (actionlint, testes dos scripts, manifests contra o binario publicado, schemas) |
-| `docs` | PR e push em `stage` ou `master` que mexem em `docs/` ou no proprio workflow | gera a ajuda da CLI e confere que esta em dia, roda `mdbook build` e confere os links internos; em push em `master`, publica no GitHub Pages |
+| `docs` | PR e push em `stage` ou `master` que mexem em `docs/`, no `CHANGELOG.md` ou no proprio workflow | gera a ajuda da CLI e confere que esta em dia, roda `mdbook build` e confere os links internos; em push em `master`, publica no GitHub Pages |
 | `promote` | todo dia as 00:00 UTC e manual | PR `stage` -> `master` |
 | `sync-stage` | push em `master` e manual | PR `master` -> `stage` |
 | `release` | push em `master` fora de docs e packaging, e manual | build, release e manifests; veja [Releases](releases.md) |

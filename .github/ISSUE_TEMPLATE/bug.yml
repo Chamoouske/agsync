@@ -1,0 +1,66 @@
+name: Bug
+description: Algo no agsync nao funciona como deveria.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de abrir, veja [Solucao de problemas](https://chamoouske.github.io/agsync/solucao-de-problemas.html). Tire segredos e tokens dos logs e da config.
+  - type: input
+    id: version
+    attributes:
+      label: Versao do agsync
+      description: Saida de `agsync --version`.
+      placeholder: agsync 0.14.2
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Sistema operacional
+      options:
+        - Windows
+        - Linux
+        - WSL
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: Versao do sistema e shell
+      placeholder: Windows 11 24H2, PowerShell 7.5
+  - type: textarea
+    id: command
+    attributes:
+      label: Comando executado
+      description: O comando exato, com as opcoes.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Saida e logs
+      description: Saida do comando, de `agsync doctor` e, se for o `check` periodico, o `check.log`.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Esperado
+      description: O que deveria ter acontecido.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Obtido
+      description: O que aconteceu de fato.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexto
+      description: Agentes envolvidos, trecho do `agsync.yaml` e o que mais ajudar a reproduzir.

@@ -1,0 +1,23 @@
+name: Funcionalidade
+description: Sugira uma funcionalidade ou mudanca no agsync.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema
+      description: O que voce quer fazer e hoje nao consegue, ou consegue com dificuldade.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposta
+      description: Como o agsync poderia resolver. Exemplos de comando ou de `agsync.yaml` ajudam.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas
+      description: Outras formas de resolver que voce considerou.
