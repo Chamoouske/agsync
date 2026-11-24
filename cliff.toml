@@ -2,9 +2,9 @@
 header = """
 # Changelog
 
-Todas as mudancas relevantes do agsync ficam neste arquivo.
+Todas as mudanças relevantes do agsync ficam neste arquivo.
 
-O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versoes seguem o [Versionamento Semantico](https://semver.org/lang/pt-BR/). As secoes novas sao geradas na release pelo [git-cliff](https://git-cliff.org/) a partir dos Conventional Commits: veja [Releases](https://chamoouske.github.io/agsync/contribuicao/releases.html#changelog).
+O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versões seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/). As seções novas são geradas na release pelo [git-cliff](https://git-cliff.org/) a partir dos Conventional Commits: veja [Releases](https://chamoouske.github.io/agsync/contribuicao/releases.html#changelog).
 """
 body = """
 {% set repo = "https://github.com/Chamoouske/agsync" -%}
@@ -17,7 +17,7 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | striptags | trim }}
 {% for commit in commits %}
-- {% if commit.breaking %}**Incompativel:** {% endif %}{{ commit.message | upper_first }}
+- {% if commit.breaking %}**Incompatível:** {% endif %}{{ commit.message | upper_first }}
 {%- endfor %}
 {% endfor %}
 {% if previous.version -%}
@@ -42,8 +42,8 @@ commit_parsers = [
   { message = "^feat", group = "<!-- 0 -->Adicionado" },
   { message = "^(perf|refactor)", group = "<!-- 1 -->Alterado" },
   { message = "^fix", group = "<!-- 3 -->Corrigido" },
-  { message = "^docs", group = "<!-- 4 -->Documentacao" },
+  { message = "^docs", group = "<!-- 4 -->Documentação" },
   { message = "^(ci|build)", group = "<!-- 5 -->CI" },
-  { message = "^chore", group = "<!-- 6 -->Manutencao" },
+  { message = "^chore", group = "<!-- 6 -->Manutenção" },
   { message = "^(test|style)", skip = true },
 ]
