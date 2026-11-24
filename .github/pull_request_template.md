@@ -7,4 +7,4 @@
 - [ ] `cargo test --no-fail-fast`
 - [ ] `cargo clippy --all-targets -- -D warnings` e `cargo fmt --check`
 - [ ] Documentacao em `docs/` atualizada, se mudou comportamento ou CLI
-- [ ] `CHANGELOG.md` atualizado em `## [Unreleased]`, se importa para quem usa
+- [ ] Titulo do PR e mensagens dos commits seguem Conventional Commits (viram o `CHANGELOG.md` na release)

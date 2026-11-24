@@ -50,6 +50,7 @@ Os scripts de packaging tem testes proprios, em bash:
 scripts/test-manifests.sh
 scripts/test-merge-pr.sh
 scripts/test-next-version.sh
+scripts/test-check-conventional.sh
 ```
 
 ## Convencoes
@@ -57,6 +58,6 @@ scripts/test-next-version.sh
 - Mensagens para o usuario em portugues, sem acentos; o texto de `--help` da CLI e os doc comments em ingles.
 - Documentacao de codigo so com doc comments (`//!` e `///`).
 - Commits seguem Conventional Commits: o tipo decide a proxima versao (veja [Releases](releases.md)).
-- Mudancas que importam para quem usa o agsync entram em `## [Unreleased]` no `CHANGELOG.md` (veja [Changelog](releases.md#changelog)).
+- O `CHANGELOG.md` e gerado na release a partir dos commits; nao edite a mao. A descricao do commit vira a linha do changelog (veja [Changelog](releases.md#changelog)).
 
 O [`CONTRIBUTING.md`](https://github.com/Chamoouske/agsync/blob/master/CONTRIBUTING.md) na raiz do repo resume esta secao para quem chega pelo GitHub.
