@@ -29,7 +29,7 @@ O [`CHANGELOG.md`](../changelog.md), na raiz do repo, segue o [Keep a Changelog]
 - O tipo do commit decide a secao: `feat` em Adicionado, `perf` e `refactor` em Alterado, `fix` em Corrigido, `docs` em Documentacao, `ci` e `build` em CI, `chore` em Manutencao. Commits com `!` ou `BREAKING CHANGE:` aparecem com **Incompativel:** na frente. Ficam de fora os merges, `test`, `style`, `chore(packaging)` e `chore(release)`.
 - A linha do changelog e a descricao do commit, com a primeira letra maiuscula: escreva a descricao pensando em quem le o changelog.
 - As notas da release no GitHub sao a mesma secao, gerada pelo mesmo comando.
-- O job `conventional commits` do workflow `ci` recusa PR cujo titulo ou algum commit (fora merges) nao siga Conventional Commits (`scripts/check-conventional.sh`).
+- O check `conventional commits` (workflow `conventional-commits`, so em PR) recusa PR cujo titulo ou algum commit (fora merges) nao siga Conventional Commits (`scripts/check-conventional.sh`).
 
 Para ver o que entraria na proxima versao, sem criar tag:
 
