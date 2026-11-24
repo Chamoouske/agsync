@@ -29,3 +29,21 @@ pub fn confirm(yes: bool, question: &str, command: &str) -> anyhow::Result<bool>
     }
     Ok(ok)
 }
+
+/// Prints `question: ` and reads lines until one is not blank; errors when stdin ends.
+pub fn ask(question: &str) -> anyhow::Result<String> {
+    loop {
+        print!("{question}: ");
+        std::io::stdout().flush()?;
+        let mut answer = String::new();
+        let read = std::io::stdin().lock().read_line(&mut answer)?;
+        if read == 0 {
+            println!();
+            anyhow::bail!("entrada encerrada sem resposta para \"{question}\"");
+        }
+        let answer = answer.trim();
+        if !answer.is_empty() {
+            return Ok(answer.to_string());
+        }
+    }
+}
