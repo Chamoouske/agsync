@@ -20,6 +20,11 @@ jobs:
       GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - name: Check out the merge script
+        uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+
       - name: Open the stage to master pull request and turn on auto-merge
         run: |
           if [ -z "$GH_TOKEN" ]; then
@@ -39,15 +44,7 @@ jobs:
           else
             echo "pull request already open: $url"
           fi
-          if out=$(gh pr merge "$url" --auto --merge 2>&1); then
-            echo "$out"
-          elif printf '%s' "$out" | grep -q 'clean status'; then
-            echo "$out"
-            echo "$url is already mergeable, so auto-merge has nothing to wait for; merging it now"
-            head=$(gh pr view "$url" --json headRefOid --jq .headRefOid)
-            gh pr merge "$url" --merge --match-head-commit "$head"
-          else
-            echo "$out"
-            echo "::error::could not enable auto-merge on $url; turn on Settings > General > Allow auto-merge or merge it by hand with a merge commit"
+          if ! scripts/merge-pr.sh "$url"; then
+            echo "::error::turn on Settings > General > Allow auto-merge or merge it by hand with a merge commit"
             exit 1
           fi
