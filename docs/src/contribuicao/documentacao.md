@@ -37,7 +37,7 @@ O workflow `docs`:
 1. compila o agsync, roda `docs/gen-cli-help.sh` e falha se `cli-help.md` mudou;
 2. roda `mdbook build docs`;
 3. confere os links internos do HTML gerado com o `lychee` (`--offline`);
-4. em push na branch padrao (`stage`), publica `docs/book` no GitHub Pages.
+4. em push em `master`, publica `docs/book` no GitHub Pages, em <https://chamoouske.github.io/agsync/>. Assim o site mostra so o que ja foi lancado; em PRs e em `stage` o workflow so compila e confere.
 
 O workflow `release` ignora mudancas em `docs/` e no proprio workflow `docs`.
 

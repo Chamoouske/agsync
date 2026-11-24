@@ -63,7 +63,7 @@ O `init` grava o `machine.toml`, registra o `check` periodico, oferece o hook de
 
 ## Microsoft Defender e SmartScreen
 
-O binario do Windows nao tem assinatura de codigo, e o Microsoft Defender pode por o `agsync.exe` em quarentena (por exemplo, como `Trojan:Win32/Bearfoos.A!ml`) ou o SmartScreen pode avisar sobre um aplicativo desconhecido. E um falso positivo conhecido, mas confira antes de liberar:
+O binario do Windows nao tem assinatura de codigo, e o Microsoft Defender pode por o `agsync.exe` em quarentena (por exemplo, como `Trojan:Win32/Bearfoos.A!ml`) ou o SmartScreen pode avisar sobre um aplicativo desconhecido. E um falso positivo conhecido e ainda acontece nas versoes atuais, mas confira antes de liberar:
 
 1. Compare o SHA256 com a linha de `agsync-x86_64-pc-windows-msvc.exe` no `SHA256SUMS` da [release](https://github.com/Chamoouske/agsync/releases):
 
