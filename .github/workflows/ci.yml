@@ -50,6 +50,9 @@ jobs:
       - name: Test the manifest update and check scripts
         run: scripts/test-manifests.sh
 
+      - name: Test the pull request merge script
+        run: scripts/test-merge-pr.sh
+
       - name: Check that the manifests match the published asset
         run: scripts/check-manifests.sh --remote
 
