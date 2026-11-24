@@ -1,6 +1,6 @@
 # agsync.yaml
 
-Fica na raiz do repo de config. O agsync valida o arquivo inteiro antes de planejar; campos desconhecidos sao erro, e cada erro aponta a linha.
+Fica na raiz do repo de config. O agsync valida o arquivo inteiro antes de planejar; campos desconhecidos são erro, e cada erro aponta a linha.
 
 ## Exemplo completo
 
@@ -61,34 +61,34 @@ imports:
 
 ## Raiz
 
-| campo | tipo | obrigatorio | descricao |
+| campo | tipo | obrigatório | descrição |
 |---|---|---|---|
 | `version` | inteiro | sim | sempre `1` |
-| `profiles` | lista de nomes | nao | todos os perfis que os itens podem citar |
-| `silentUpdate` | booleano | nao | `true` faz o `agsync init` aplicar sem perguntar, como `--silent-update`; padrao `false` |
-| `mcps` | mapa nome -> MCP | nao | MCP servers |
-| `skills` | lista | nao | skills |
-| `plugins` | lista | nao | plugins de marketplaces |
-| `imports` | objeto | nao | itens de outros repos de config |
+| `profiles` | lista de nomes | não | todos os perfis que os itens podem citar |
+| `silentUpdate` | booleano | não | `true` faz o `agsync init` aplicar sem perguntar, como `--silent-update`; padrão `false` |
+| `mcps` | mapa nome -> MCP | não | MCP servers |
+| `skills` | lista | não | skills |
+| `plugins` | lista | não | plugins de marketplaces |
+| `imports` | objeto | não | itens de outros repos de config |
 
 ## Regras comuns
 
-- **Nomes** de MCP, skill, plugin e `excludes`: letras, numeros, `-` e `_`.
+- **Nomes** de MCP, skill, plugin e `excludes`: letras, números, `-` e `_`.
 - **`profiles`** de um item: cada perfil precisa estar em `profiles` da raiz. Sem `profiles` (ou lista vazia), o item vale em todos os perfis.
-- **`agents`** de um item: `claude`, `codex`, `opencode`, `hermes`, `antigravity`. Sem `agents`, vale em todos. Lista vazia e erro.
-- **`git`**: URL, atalho do GitHub ou pasta local, conforme o campo. URL com senha ou token embutido e recusada (exceto o usuario de `ssh://git@host`); use o credential helper do git. Valor que comeca com `-` e recusado.
-- **`ref`**: branch, tag ou SHA completo. SHA abreviado e valor que comeca com `-` sao recusados. Branch e tag sao seguidas: um commit novo aparece no `check`.
+- **`agents`** de um item: `claude`, `codex`, `opencode`, `hermes`, `antigravity`. Sem `agents`, vale em todos. Lista vazia é erro.
+- **`git`**: URL, atalho do GitHub ou pasta local, conforme o campo. URL com senha ou token embutido é recusada (exceto o usuário de `ssh://git@host`); use o credential helper do git. Valor que começa com `-` é recusado.
+- **`ref`**: branch, tag ou SHA completo. SHA abreviado e valor que começa com `-` são recusados. Branch e tag são seguidas: um commit novo aparece no `check`.
 - **`${VAR}`**: aceito em `command`, `args`, `env`, `url` e `headers`. Veja [Segredos](../guias/segredos.md).
 
 ## mcps.&lt;nome&gt;
 
-| campo | tipo | descricao |
+| campo | tipo | descrição |
 |---|---|---|
-| `command` | texto | executavel de um MCP stdio |
-| `args` | lista de texto | argumentos; so com `command` |
-| `env` | mapa | variaveis de ambiente; so com `command` |
-| `url` | texto | endereco de um MCP remoto (HTTP) |
-| `headers` | mapa | cabecalhos HTTP; so com `url` |
+| `command` | texto | executável de um MCP stdio |
+| `args` | lista de texto | argumentos; só com `command` |
+| `env` | mapa | variáveis de ambiente; só com `command` |
+| `url` | texto | endereço de um MCP remoto (HTTP) |
+| `headers` | mapa | cabeçalhos HTTP; só com `url` |
 | `profiles` | lista | perfis em que o item vale |
 | `agents` | lista | agentes em que o item vale |
 | `source` | objeto | construir o servidor de um repo git |
@@ -97,46 +97,46 @@ Defina exatamente um entre `command` e `url`.
 
 ### mcps.&lt;nome&gt;.source
 
-| campo | tipo | obrigatorio | descricao |
+| campo | tipo | obrigatório | descrição |
 |---|---|---|---|
 | `git` | texto | sim | repo do servidor |
 | `ref` | texto | sim | branch, tag ou SHA completo |
-| `requires` | lista | nao | programas que precisam estar no PATH; se faltar algum, o item e pulado |
-| `build` | lista | nao | comandos rodados no checkout, por `sh -c` no Linux e `cmd /c` no Windows |
+| `requires` | lista | não | programas que precisam estar no PATH; se faltar algum, o item é pulado |
+| `build` | lista | não | comandos rodados no checkout, por `sh -c` no Linux e `cmd /c` no Windows |
 
-`{dir}` em `command`, `args` e `env` vira a pasta do checkout. Veja [MCP construido de um repo git](../guias/mcp-de-fonte-git.md).
+`{dir}` em `command`, `args` e `env` vira a pasta do checkout. Veja [MCP construído de um repo git](../guias/mcp-de-fonte-git.md).
 
 ## skills[]
 
-Cada item e uma pasta com `SKILL.md`.
+Cada item é uma pasta com `SKILL.md`.
 
-| campo | tipo | descricao |
+| campo | tipo | descrição |
 |---|---|---|
 | `path` | texto | pasta no repo de config ou, com `git`, dentro do outro repo; relativa e sem `..` |
-| `paths` | lista | so com `git`: varias pastas do mesmo repo, cada uma uma skill |
-| `name` | texto | nome da skill; padrao: ultimo segmento do `path`; nao vale com `paths` |
+| `paths` | lista | só com `git`: várias pastas do mesmo repo, cada uma uma skill |
+| `name` | texto | nome da skill; padrão: último segmento do `path`; não vale com `paths` |
 | `git` | texto | outro repo de onde vem a pasta |
-| `ref` | texto | obrigatorio com `git`; so vale com `git` |
+| `ref` | texto | obrigatório com `git`; só vale com `git` |
 | `profiles` | lista | como nos MCPs |
 | `agents` | lista | como nos MCPs |
 
 - Use `path` ou `paths`, nunca os dois.
-- Com `paths`, cada pasta vira uma skill independente com o nome do ultimo segmento; todas compartilham `git`, `ref`, `profiles` e `agents`, e o repo e baixado uma vez so. Uma pasta sem `SKILL.md` e pulada e reportada, sem bloquear as outras.
-- Pasta local (sem `git`) sem `SKILL.md` e erro de validacao.
-- Nome de skill repetido e erro.
-- Uma skill com `git` nao pode ter o nome de um MCP com `source`; use `name`.
+- Com `paths`, cada pasta vira uma skill independente com o nome do último segmento; todas compartilham `git`, `ref`, `profiles` e `agents`, e o repo é baixado uma vez só. Uma pasta sem `SKILL.md` é pulada e reportada, sem bloquear as outras.
+- Pasta local (sem `git`) sem `SKILL.md` é erro de validação.
+- Nome de skill repetido é erro.
+- Uma skill com `git` não pode ter o nome de um MCP com `source`; use `name`.
 
 ## plugins[]
 
-| campo | tipo | obrigatorio | descricao |
+| campo | tipo | obrigatório | descrição |
 |---|---|---|---|
-| `name` | texto | sim | nome no catalogo do marketplace (no Antigravity, o `name` do `plugin.json`) |
+| `name` | texto | sim | nome no catálogo do marketplace (no Antigravity, o `name` do `plugin.json`) |
 | `marketplace.git` | texto | sim | URL git, atalho do GitHub ou pasta local com `.claude-plugin` |
 | `marketplace.ref` | texto | sim | branch, tag ou SHA completo; a mesma em todas as entradas do mesmo marketplace |
-| `profiles` | lista | nao | como nos MCPs |
-| `agents` | lista | nao | como nos MCPs |
+| `profiles` | lista | não | como nos MCPs |
+| `agents` | lista | não | como nos MCPs |
 
-Nome de plugin repetido e erro. Veja [Plugins](../guias/plugins.md).
+Nome de plugin repetido é erro. Veja [Plugins](../guias/plugins.md).
 
 ## imports
 
@@ -149,12 +149,12 @@ imports:
 
 Cada entrada:
 
-| campo | tipo | obrigatorio | descricao |
+| campo | tipo | obrigatório | descrição |
 |---|---|---|---|
 | `git` | texto | sim | repo com um `agsync.yaml` na raiz |
-| `ref` | texto | nao | branch, tag ou SHA completo; padrao `main` |
-| `profiles` | lista | nao | o import so vale nesses perfis; os itens importados assumem esses perfis |
-| `excludes` | lista | nao | nomes daquele tipo, daquela origem, que nao entram; nome inexistente gera aviso |
-| `secrets` | lista | nao | so em `imports.mcps`: variaveis que os MCPs importados podem usar como `${VAR}`; nomes com letras, numeros e `_` |
+| `ref` | texto | não | branch, tag ou SHA completo; padrão `main` |
+| `profiles` | lista | não | o import só vale nesses perfis; os itens importados assumem esses perfis |
+| `excludes` | lista | não | nomes daquele tipo, daquela origem, que não entram; nome inexistente gera aviso |
+| `secrets` | lista | não | só em `imports.mcps`: variáveis que os MCPs importados podem usar como `${VAR}`; nomes com letras, números e `_` |
 
-O mesmo `git` com a mesma `ref` repetido no mesmo tipo e erro. Veja [Importar de outros repos](../guias/imports.md).
+O mesmo `git` com a mesma `ref` repetido no mesmo tipo é erro. Veja [Importar de outros repos](../guias/imports.md).

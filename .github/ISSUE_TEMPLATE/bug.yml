@@ -1,16 +1,16 @@
 name: Bug
-description: Algo no agsync nao funciona como deveria.
+description: Algo no agsync não funciona como deveria.
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Antes de abrir, veja [Solucao de problemas](https://chamoouske.github.io/agsync/solucao-de-problemas.html). Tire segredos e tokens dos logs e da config.
+        Antes de abrir, veja [Solução de problemas](https://chamoouske.github.io/agsync/solucao-de-problemas.html). Tire segredos e tokens dos logs e da config.
   - type: input
     id: version
     attributes:
-      label: Versao do agsync
-      description: Saida de `agsync --version`.
+      label: Versão do agsync
+      description: Saída de `agsync --version`.
       placeholder: agsync 0.14.2
     validations:
       required: true
@@ -27,21 +27,21 @@ body:
   - type: input
     id: os-version
     attributes:
-      label: Versao do sistema e shell
+      label: Versão do sistema e shell
       placeholder: Windows 11 24H2, PowerShell 7.5
   - type: textarea
     id: command
     attributes:
       label: Comando executado
-      description: O comando exato, com as opcoes.
+      description: O comando exato, com as opções.
       render: shell
     validations:
       required: true
   - type: textarea
     id: output
     attributes:
-      label: Saida e logs
-      description: Saida do comando, de `agsync doctor` e, se for o `check` periodico, o `check.log`.
+      label: Saída e logs
+      description: Saída do comando, de `agsync doctor` e, se for o `check` periódico, o `check.log`.
       render: text
     validations:
       required: true
