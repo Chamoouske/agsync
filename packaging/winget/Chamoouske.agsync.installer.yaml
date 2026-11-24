@@ -1,11 +1,11 @@
 PackageIdentifier: Chamoouske.agsync
-PackageVersion: 0.14.0
+PackageVersion: 0.14.2
 InstallerType: portable
 Commands:
 - agsync
 Installers:
 - Architecture: x64
-  InstallerUrl: https://github.com/Chamoouske/agsync/releases/download/v0.14.0/agsync-x86_64-pc-windows-msvc.exe
-  InstallerSha256: 0B93B19CC484E89AC9CF5DFE7808BB28EC38E6DC2D9BBAF6B5F19BCED36A1D94
+  InstallerUrl: https://github.com/Chamoouske/agsync/releases/download/v0.14.2/agsync-x86_64-pc-windows-msvc.exe
+  InstallerSha256: 8E4F7746778BF47E4EA4A18DFCD3C2506C902AE54B9093D67AB94A8307061F62
 ManifestType: installer
 ManifestVersion: 1.6.0
