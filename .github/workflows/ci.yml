@@ -18,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7.0.1
 
       - name: Install the stable Rust toolchain with rustfmt and clippy
         run: |
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7.0.1
 
       - name: Lint the workflows
         run: pipx run --spec actionlint-py==1.7.12.25 actionlint
