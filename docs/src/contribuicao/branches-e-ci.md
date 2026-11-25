@@ -39,3 +39,9 @@ gh api -X PUT repos/Chamoouske/agsync/rulesets/27474564 --input .github/rulesets
 | `promote` | todo dia às 00:00 UTC e manual | PR `stage` -> `master` |
 | `sync-stage` | push em `master` e manual | PR `master` -> `stage` |
 | `release` | push em `master` fora de docs e packaging, e manual | build, release e manifests; veja [Releases](releases.md) |
+
+## Dependabot
+
+O [`.github/dependabot.yml`](https://github.com/Chamoouske/agsync/blob/stage/.github/dependabot.yml) abre, toda segunda-feira às 06:00 (horário de Brasília), PRs para `stage` com as atualizações de crates do `Cargo.toml` e das actions dos workflows. As atualizações minor e patch vêm num PR só por ecossistema; cada major vem num PR próprio. No máximo 5 PRs abertos por ecossistema.
+
+Os títulos seguem Conventional Commits: `chore(deps): ...` para crates (seção Manutenção do changelog) e `ci(deps): ...` para actions (seção CI). Nenhum dos dois sobe minor ou major: na promoção, sozinhos, geram uma release patch. Os checks obrigatórios rodam nesses PRs como em qualquer outro, porque nenhum deles usa secrets.
