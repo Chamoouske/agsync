@@ -4,6 +4,15 @@ Todas as mudanças relevantes do agsync ficam neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versões seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/). As seções novas são geradas na release pelo [git-cliff](https://git-cliff.org/) a partir dos Conventional Commits: veja [Releases](https://chamoouske.github.io/agsync/contribuicao/releases.html#changelog).
 
+## [0.14.4] - 2026-11-25
+
+### Documentação
+
+- Use Portuguese accents in the section names and header
+- Fix Portuguese accents in the book, README, CONTRIBUTING and templates
+
+[0.14.4]: https://github.com/Chamoouske/agsync/compare/v0.14.3...v0.14.4
+
 ## [0.14.3] - 2026-11-24
 
 ### Corrigido
