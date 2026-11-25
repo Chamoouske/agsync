@@ -21,6 +21,7 @@ Se a substituição de um item falha, o erro é mostrado, o item não entra no `
 
 - Nome diferente, outro tipo (uma skill `x` não corresponde a um MCP `x`) ou outro agente nunca contam.
 - Plugins no Claude Code: um plugin manual com o mesmo nome vindo de outro marketplace também conta, se for o único com esse nome; o `--adopt` instala o do `agsync.yaml` e desinstala o manual.
+- Plugins no Codex: como no Claude Code, um plugin manual com o mesmo nome de outro marketplace conta se for o único com esse nome.
 - Plugins no OpenCode: só conta o mesmo pacote.
 - Plugins no Antigravity: conta o plugin instalado com o mesmo nome, de qualquer origem.
 

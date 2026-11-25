@@ -24,7 +24,8 @@ MCPs só valem depois de reiniciar o agente.
 
 - MCPs: `codex mcp add/remove` quando o CLI expressa a entrada. Senão, o agsync edita `$CODEX_HOME/config.toml` (padrão `~/.codex`), tabela `[mcp_servers.<nome>]`, mantendo comentários.
 - Skills: `~/.agents/skills`.
-- Plugins: não suportados.
+- Plugins: `codex plugin marketplace add/remove` e `codex plugin add/remove`; os marketplaces ficam em `[marketplaces.<nome>]` no `config.toml`.
+- Backup: `config.toml`.
 
 ## OpenCode
 
