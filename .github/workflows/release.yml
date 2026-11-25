@@ -88,7 +88,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "dist/${{ matrix.asset }}"
 
       - name: Upload the binary for the publish job
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
@@ -193,7 +193,7 @@ jobs:
         run: gh release upload "v$VERSION" packaging/scoop/agsync.json --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Keep the WinGet manifests for the winget job
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: winget-manifests
           path: packaging/winget
