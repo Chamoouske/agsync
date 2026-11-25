@@ -1,8 +1,8 @@
 # Changelog
 
-Todas as mudancas relevantes do agsync ficam neste arquivo.
+Todas as mudanças relevantes do agsync ficam neste arquivo.
 
-O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versoes seguem o [Versionamento Semantico](https://semver.org/lang/pt-BR/). As secoes novas sao geradas na release pelo [git-cliff](https://git-cliff.org/) a partir dos Conventional Commits: veja [Releases](https://chamoouske.github.io/agsync/contribuicao/releases.html#changelog).
+O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versões seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/). As seções novas são geradas na release pelo [git-cliff](https://git-cliff.org/) a partir dos Conventional Commits: veja [Releases](https://chamoouske.github.io/agsync/contribuicao/releases.html#changelog).
 
 ## [0.14.3] - 2026-11-24
 
@@ -10,7 +10,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 - Log each step of the promotion merge
 
-### Documentacao
+### Documentação
 
 - Add structured mdBook documentation
 - Trim the README and link the full documentation
@@ -28,7 +28,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Run the Conventional Commits check only on pull requests, in its own workflow
 - Require the conventional commits check on stage and master
 
-### Manutencao
+### Manutenção
 
 - License agsync under MIT
 - Add bug and feature issue forms and a pull request template

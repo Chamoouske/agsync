@@ -1,12 +1,12 @@
 name: Funcionalidade
-description: Sugira uma funcionalidade ou mudanca no agsync.
+description: Sugira uma funcionalidade ou mudança no agsync.
 labels: ["enhancement"]
 body:
   - type: textarea
     id: problem
     attributes:
       label: Problema
-      description: O que voce quer fazer e hoje nao consegue, ou consegue com dificuldade.
+      description: O que você quer fazer e hoje não consegue, ou consegue com dificuldade.
     validations:
       required: true
   - type: textarea
@@ -20,4 +20,4 @@ body:
     id: alternatives
     attributes:
       label: Alternativas
-      description: Outras formas de resolver que voce considerou.
+      description: Outras formas de resolver que você considerou.

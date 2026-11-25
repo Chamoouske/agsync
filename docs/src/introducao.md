@@ -1,36 +1,36 @@
 # agsync
 
-O agsync aplica MCP servers, skills e plugins de um repositorio git de configuracao na configuracao de usuario dos agentes de codigo da maquina: Claude Code, Codex, OpenCode, Hermes e Antigravity CLI.
+O agsync aplica MCP servers, skills e plugins de um repositório git de configuração na configuração de usuário dos agentes de código da máquina: Claude Code, Codex, OpenCode, Hermes e Antigravity CLI.
 
-Voce descreve o que quer em um arquivo `agsync.yaml`, na raiz de um repo git. Cada maquina aponta para esse repo e escolhe seus perfis, e o agsync mantem os agentes em dia com o repo.
+Você descreve o que quer em um arquivo `agsync.yaml`, na raiz de um repo git. Cada máquina aponta para esse repo e escolhe seus perfis, e o agsync mantém os agentes em dia com o repo.
 
 ## Conceitos centrais
 
-- **Repo de config**: um repo git com o `agsync.yaml` na raiz e, opcionalmente, pastas de skills. E a fonte da verdade. Veja [Montar o repo de config](guias/repo-de-config.md).
+- **Repo de config**: um repo git com o `agsync.yaml` na raiz e, opcionalmente, pastas de skills. É a fonte da verdade. Veja [Montar o repo de config](guias/repo-de-config.md).
 - **Item**: um MCP server, uma skill ou um plugin declarado no `agsync.yaml`.
-- **Agente**: um agente de codigo detectado pelo executavel no PATH (`claude`, `codex`, `opencode`, `hermes`, `agy`). Veja [Agentes](referencia/agentes.md).
-- **Perfil**: um rotulo (`work`, `personal`) que restringe itens a algumas maquinas. Veja [Perfis](guias/perfis.md).
-- **Maquina**: a configuracao local em `machine.toml`: repo, ref seguida, perfis ativos e intervalo do `check`. Veja [machine.toml](referencia/machine-toml.md).
-- **State**: o `state.json`, que registra tudo o que o agsync escreveu em cada agente. O agsync so mexe no que esta nele. Veja [Planejamento e state](explicacao/planejamento.md).
-- **Pendencia**: o que o `check` periodico achou de novo no remoto e o `apply` mudaria. Fica em `pending.json`.
-- **Import**: outro repo de config de onde vem MCPs, skills ou plugins de um tipo. Veja [Importar de outros repos](guias/imports.md).
+- **Agente**: um agente de código detectado pelo executável no PATH (`claude`, `codex`, `opencode`, `hermes`, `agy`). Veja [Agentes](referencia/agentes.md).
+- **Perfil**: um rótulo (`work`, `personal`) que restringe itens a algumas máquinas. Veja [Perfis](guias/perfis.md).
+- **Máquina**: a configuração local em `machine.toml`: repo, ref seguida, perfis ativos e intervalo do `check`. Veja [machine.toml](referencia/machine-toml.md).
+- **State**: o `state.json`, que registra tudo o que o agsync escreveu em cada agente. O agsync só mexe no que está nele. Veja [Planejamento e state](explicacao/planejamento.md).
+- **Pendência**: o que o `check` periódico achou de novo no remoto e o `apply` mudaria. Fica em `pending.json`.
+- **Import**: outro repo de config de onde vêm MCPs, skills ou plugins de um tipo. Veja [Importar de outros repos](guias/imports.md).
 
-## Principios
+## Princípios
 
-- So mexe no que ele mesmo escreveu. Entradas manuais com o mesmo nome viram conflito e ficam como estao, a nao ser com `agsync apply --adopt`.
-- Escreve pelo CLI do agente quando o CLI sabe fazer a mudanca. Senao, edita o arquivo preservando comentarios.
-- Faz backup antes de cada mudanca.
-- O `agsync check` periodico so le o remoto e avisa. Nada e aplicado sem `agsync apply`.
+- Só mexe no que ele mesmo escreveu. Entradas manuais com o mesmo nome viram conflito e ficam como estão, a não ser com `agsync apply --adopt`.
+- Escreve pelo CLI do agente quando o CLI sabe fazer a mudança. Senão, edita o arquivo preservando comentários.
+- Faz backup antes de cada mudança.
+- O `agsync check` periódico só lê o remoto e avisa. Nada é aplicado sem `agsync apply`.
 - O `agsync hook`, que roda quando o shell abre, nunca acessa a rede.
 
-## Por onde comecar
+## Por onde começar
 
 1. [Instale](primeiros-passos/instalacao.md) o agsync.
 2. Siga o [Primeiro uso](primeiros-passos/primeiro-uso.md).
-3. Consulte a [Referencia](referencia/cli.md) quando precisar de um detalhe.
+3. Consulte a [Referência](referencia/cli.md) quando precisar de um detalhe.
 
-Algo deu errado? Veja [Solucao de problemas](solucao-de-problemas.md). O que mudou em cada versao esta no [Changelog](changelog.md).
+Algo deu errado? Veja [Solução de problemas](solucao-de-problemas.md). O que mudou em cada versão está no [Changelog](changelog.md).
 
-## Licenca
+## Licença
 
-O agsync e distribuido sob a [licenca MIT](https://github.com/Chamoouske/agsync/blob/master/LICENSE).
+O agsync é distribuído sob a [licença MIT](https://github.com/Chamoouske/agsync/blob/master/LICENSE).

@@ -1,4 +1,4 @@
-# Solucao de problemas
+# Solução de problemas
 
 Comece sempre por:
 
@@ -11,9 +11,9 @@ O `doctor` aponta a maior parte dos problemas de ambiente; o `status` mostra ite
 
 ## Microsoft Defender e SmartScreen
 
-O binario do Windows nao tem assinatura de codigo e chama o PowerShell por dentro (por exemplo, para achar os perfis do PowerShell). Por isso o classificador de aprendizado de maquina do Microsoft Defender pode por o `agsync.exe` em quarentena (por exemplo, como `Trojan:Win32/Bearfoos.A!ml`), ou o SmartScreen pode avisar sobre um aplicativo desconhecido. E um falso positivo conhecido e ainda acontece nas versoes atuais, mas confira antes de liberar.
+O binário do Windows não tem assinatura de código e chama o PowerShell por dentro (por exemplo, para achar os perfis do PowerShell). Por isso o classificador de aprendizado de máquina do Microsoft Defender pode por o `agsync.exe` em quarentena (por exemplo, como `Trojan:Win32/Bearfoos.A!ml`), ou o SmartScreen pode avisar sobre um aplicativo desconhecido. É um falso positivo conhecido e ainda acontece nas versões atuais, mas confira antes de liberar.
 
-Sinais: o `install.ps1` termina com `... sumiu ou nao executa depois da instalacao`, o `agsync update` volta para o binario anterior, ou o `agsync.exe` some da pasta.
+Sinais: o `install.ps1` termina com `... sumiu ou nao executa depois da instalacao`, o `agsync update` volta para o binário anterior, ou o `agsync.exe` some da pasta.
 
 1. Confira o SHA256 do arquivo contra o `SHA256SUMS` da release:
 
@@ -21,50 +21,50 @@ Sinais: o `install.ps1` termina com `... sumiu ou nao executa depois da instalac
    (Get-FileHash "$env:LOCALAPPDATA\agsync\bin\agsync.exe" -Algorithm SHA256).Hash.ToLower()
    ```
 
-   Compare com a linha de `agsync-x86_64-pc-windows-msvc.exe` no `SHA256SUMS` da [release](https://github.com/Chamoouske/agsync/releases). Se o hash for diferente, nao use o arquivo. O `install.ps1` ja faz essa conferencia antes de copiar o binario.
+   Compare com a linha de `agsync-x86_64-pc-windows-msvc.exe` no `SHA256SUMS` da [release](https://github.com/Chamoouske/agsync/releases). Se o hash for diferente, não use o arquivo. O `install.ps1` já faz essa conferência antes de copiar o binário.
 
-2. Para restaurar da quarentena: Seguranca do Windows > Protecao contra virus e ameacas > Historico de protecao, escolha a deteccao do `agsync.exe` e use Acoes > Restaurar. Depois rode o instalador de novo se o arquivo tiver sumido.
+2. Para restaurar da quarentena: Segurança do Windows > Proteção contra vírus e ameaças > Histórico de proteção, escolha a detecção do `agsync.exe` e use Ações > Restaurar. Depois rode o instalador de novo se o arquivo tiver sumido.
 
-3. Se o Defender voltar a bloquear, exclua so o arquivo, nunca a pasta inteira, em um PowerShell como administrador:
+3. Se o Defender voltar a bloquear, exclua só o arquivo, nunca a pasta inteira, em um PowerShell como administrador:
 
    ```powershell
    Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\agsync\bin\agsync.exe"
    ```
 
-   Risco: o Defender deixa de examinar esse arquivo. Faca isso so depois de conferir o SHA256, e remova a exclusao com `Remove-MpPreference -ExclusionPath` se trocar de binario por um que voce nao conferiu.
+   Risco: o Defender deixa de examinar esse arquivo. Faça isso só depois de conferir o SHA256, e remova a exclusão com `Remove-MpPreference -ExclusionPath` se trocar de binário por um que você não conferiu.
 
-4. Para ajudar a corrigir a deteccao, envie o arquivo como falso positivo em <https://www.microsoft.com/wdsi/filesubmission>.
+4. Para ajudar a corrigir a detecção, envie o arquivo como falso positivo em <https://www.microsoft.com/wdsi/filesubmission>.
 
-Nao rode o instalador com `-ExecutionPolicy Bypass`: o Defender costuma marcar justamente essa linha.
+Não rode o instalador com `-ExecutionPolicy Bypass`: o Defender costuma marcar justamente essa linha.
 
-## Repo inacessivel ou credencial
+## Repo inacessível ou credencial
 
-- O agsync usa o `git` do sistema e nunca pede senha. Um repo privado precisa de chave SSH ou credential helper configurado para o seu usuario. Teste com `git ls-remote <url>`.
-- Erros de TLS/certificado ou de autenticacao recebem uma dica no `doctor`.
-- URL com token embutido (`https://token@host/...`) e recusada de proposito; use o credential helper.
-- O `check` com remoto inacessivel so registra em `<dados>/logs/check.log`, sem notificar.
+- O agsync usa o `git` do sistema e nunca pede senha. Um repo privado precisa de chave SSH ou credential helper configurado para o seu usuário. Teste com `git ls-remote <url>`.
+- Erros de TLS/certificado ou de autenticação recebem uma dica no `doctor`.
+- URL com token embutido (`https://token@host/...`) é recusada de propósito; use o credential helper.
+- O `check` com remoto inacessível só registra em `<dados>/logs/check.log`, sem notificar.
 
 ## Nada acontece depois de mudar o repo
 
-- O `check` roda a cada `check_interval_minutes` (padrao 15). Rode `agsync status` para consultar o remoto na hora.
-- Confira o agendamento com `agsync schedule status`. Se ele aponta para outro binario (por exemplo, depois de mover o agsync), rode `agsync schedule install`.
+- O `check` roda a cada `check_interval_minutes` (padrão 15). Rode `agsync status` para consultar o remoto na hora.
+- Confira o agendamento com `agsync schedule status`. Se ele aponta para outro binário (por exemplo, depois de mover o agsync), rode `agsync schedule install`.
 - Veja `<dados>/logs/check.log`.
-- O `check` so avisa; aplique com `agsync apply`.
+- O `check` só avisa; aplique com `agsync apply`.
 
-## MCP nao aparece no agente
+## MCP não aparece no agente
 
-- Reinicie o agente: MCPs so valem depois disso. No OpenCode, `opencode reload`; no `agy`, `/mcp` e `/skills reload`.
-- O agente foi detectado? O executavel precisa estar no PATH do processo que roda o agsync. Veja `agsync doctor`.
-- O item esta restrito por `profiles` ou `agents`? Veja `agsync status`.
-- Faltou um segredo ou um programa de `requires`? O item e pulado e o motivo aparece em `status`.
+- Reinicie o agente: MCPs só valem depois disso. No OpenCode, `opencode reload`; no `agy`, `/mcp` e `/skills reload`.
+- O agente foi detectado? O executável precisa estar no PATH do processo que roda o agsync. Veja `agsync doctor`.
+- O item está restrito por `profiles` ou `agents`? Veja `agsync status`.
+- Faltou um segredo ou um programa de `requires`? O item é pulado e o motivo aparece em `status`.
 
 ## Item marcado como conflito
 
-Existe uma instalacao manual com o mesmo nome, tipo e agente. Veja [Assumir instalacoes manuais](guias/adotar.md).
+Existe uma instalação manual com o mesmo nome, tipo e agente. Veja [Assumir instalações manuais](guias/adotar.md).
 
 ## Skill restrita aparece no OpenCode
 
-O OpenCode tambem le `~/.claude/skills` e `~/.agents/skills`. Uma skill com `agents: [claude]` fica visivel nele por isso; o `status` avisa.
+O OpenCode também lê `~/.claude/skills` e `~/.agents/skills`. Uma skill com `agents: [claude]` fica visível nele por isso; o `status` avisa.
 
 ## Erro no agsync.yaml
 
@@ -78,26 +78,26 @@ A mensagem traz a linha: `agsync.yaml linha N: ...`. Os erros mais comuns:
 
 Veja [agsync.yaml](referencia/agsync-yaml.md).
 
-## Comando parado esperando confirmacao, ou falhando sem terminal
+## Comando parado esperando confirmação, ou falhando sem terminal
 
 Sem terminal, `apply`, `rollback`, `migrate-legacy`, `uninstall`, `update` e `hook install` precisam de `--yes`. Em scripts, passe `--yes` explicitamente.
 
-## Outro agsync em execucao
+## Outro agsync em execução
 
-Comandos que escrevem esperam o lock em `<dados>/agsync.lock` e dizem isso na stderr. O `check` desiste em silencio se o lock estiver ocupado.
+Comandos que escrevem esperam o lock em `<dados>/agsync.lock` e dizem isso na stderr. O `check` desiste em silêncio se o lock estiver ocupado.
 
 ## Rollback falha com "sem commit anterior"
 
 O `rollback` precisa de dois applies de commits diferentes. Veja [Voltar para o commit anterior](guias/rollback.md).
 
-## Rollback e o check continua acusando pendencia
+## Rollback e o check continua acusando pendência
 
-E esperado: o remoto continua no commit novo. Corrija o repo e rode `agsync apply`.
+É esperado: o remoto continua no commit novo. Corrija o repo e rode `agsync apply`.
 
 ## Toast do Windows mostra "Windows PowerShell"
 
-E esperado: o agsync usa a identidade de app do Windows PowerShell para mostrar o toast sem registrar nada. O titulo do toast e "agsync".
+É esperado: o agsync usa a identidade de app do Windows PowerShell para mostrar o toast sem registrar nada. O título do toast e "agsync".
 
 ## WSL
 
-Agentes instalados so no Windows nao contam no WSL; o `doctor` diz quando isso acontece. Veja [Usar no WSL](guias/wsl.md).
+Agentes instalados só no Windows não contam no WSL; o `doctor` diz quando isso acontece. Veja [Usar no WSL](guias/wsl.md).
