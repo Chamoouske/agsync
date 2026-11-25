@@ -7,8 +7,13 @@
 //! `env_vars`, `http_headers` or `env_http_headers`, so an entry that needs one of them
 //! is written by editing the TOML in place (`toml_edit`, comments and layout kept).
 //! Skills are folders under `~/.agents/skills`, the user skills root Codex reads.
+//! Plugins go through `codex plugin marketplace` and `codex plugin add/remove`; see
+//! [`plugins`].
 
-use std::collections::BTreeMap;
+mod plugins;
+
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -18,6 +23,7 @@ use toml_edit::{Array, DocumentMut, InlineTable, Item, Table};
 use super::{Adapter, backup, cli};
 use crate::hash::hash_bytes;
 use crate::mcp::{McpSpec, RefSpot};
+use crate::plugin::PluginSpec;
 use crate::secret::whole_ref;
 
 /// Codex user config.
@@ -26,6 +32,7 @@ pub struct Codex {
     exe: PathBuf,
     home: PathBuf,
     skills_dir: PathBuf,
+    plugins: RefCell<Option<Vec<plugins::Installed>>>,
 }
 
 impl Codex {
@@ -50,6 +57,7 @@ impl Codex {
             exe,
             home,
             skills_dir,
+            plugins: RefCell::default(),
         }
     }
 
@@ -66,9 +74,13 @@ impl Codex {
         }
     }
 
+    fn table(&self) -> anyhow::Result<toml::Table> {
+        toml::from_str(&self.read_text()?)
+            .with_context(|| format!("{} invalido", self.config_file().display()))
+    }
+
     fn servers(&self) -> anyhow::Result<toml::Table> {
-        let table: toml::Table = toml::from_str(&self.read_text()?)
-            .with_context(|| format!("{} invalido", self.config_file().display()))?;
+        let table = self.table()?;
         let servers = table.get("mcp_servers").and_then(|v| v.as_table());
         Ok(servers.cloned().unwrap_or_default())
     }
@@ -77,7 +89,14 @@ impl Codex {
         Ok(self.servers()?.get(name).map(entry_hash))
     }
 
+    fn command(&self, args: &[&str]) -> Command {
+        let mut cmd = Command::new(&self.exe);
+        cmd.env("CODEX_HOME", &self.home).args(args);
+        cmd
+    }
+
     fn run(&self, args: &[String], show_output: bool) -> anyhow::Result<()> {
+        self.plugins.take();
         let mut cmd = Command::new(&self.exe);
         cmd.env("CODEX_HOME", &self.home).args(args);
         let what = format!("codex {}", args[..2].join(" "));
@@ -154,6 +173,36 @@ impl Adapter for Codex {
             anyhow::bail!("mcp '{name}' continua em {}", self.config_file().display());
         }
         Ok(())
+    }
+
+    fn plugin_support(&self) -> Result<(), String> {
+        self.installed_plugins()
+            .map(|_| ())
+            .map_err(|e| format!("`codex plugin list` falhou: {e:#}"))
+    }
+
+    fn plugin_installed(&self, spec: &PluginSpec) -> anyhow::Result<Option<String>> {
+        self.plugin_from_marketplace(spec)
+    }
+
+    fn plugin_named(&self, name: &str) -> anyhow::Result<Option<String>> {
+        self.only_plugin_named(name)
+    }
+
+    fn plugin_present(&self, id: &str) -> anyhow::Result<bool> {
+        self.has_plugin(id)
+    }
+
+    fn install_plugin(
+        &self,
+        spec: &PluginSpec,
+        managed: &BTreeSet<String>,
+    ) -> anyhow::Result<String> {
+        self.add_plugin(spec, managed)
+    }
+
+    fn uninstall_plugin(&self, id: &str) -> anyhow::Result<()> {
+        self.remove_plugin(id)
     }
 }
 
