@@ -56,6 +56,9 @@ jobs:
       - name: Test the Conventional Commits check
         run: scripts/test-check-conventional.sh
 
+      - name: Test the dependency-only promotion check
+        run: scripts/test-only-deps.sh
+
       - name: Check that the manifests match the published asset
         run: scripts/check-manifests.sh --remote
 
