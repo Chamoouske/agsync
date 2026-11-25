@@ -40,7 +40,7 @@ jobs:
           rustup default stable
 
       - name: Cache cargo registry and build output
-        uses: Swatinem/rust-cache@v2.8.0
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Build agsync for the CLI help
         run: cargo build --locked
