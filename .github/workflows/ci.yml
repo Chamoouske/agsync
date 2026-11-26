@@ -18,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7.0.1
 
       - name: Install the stable Rust toolchain with rustfmt and clippy
         run: |
@@ -26,7 +26,7 @@ jobs:
           rustup default stable
 
       - name: Cache cargo registry and build output
-        uses: Swatinem/rust-cache@v2.8.0
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Check formatting
         run: cargo fmt --check
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7.0.1
 
       - name: Lint the workflows
         run: pipx run --spec actionlint-py==1.7.12.25 actionlint
@@ -55,6 +55,9 @@ jobs:
 
       - name: Test the Conventional Commits check
         run: scripts/test-check-conventional.sh
+
+      - name: Test the dependency-only promotion check
+        run: scripts/test-only-deps.sh
 
       - name: Check that the manifests match the published asset
         run: scripts/check-manifests.sh --remote

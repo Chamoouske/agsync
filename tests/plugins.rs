@@ -1,11 +1,12 @@
-//! End to end for `plugins:` with the real `claude` and `opencode` CLIs and a local git
-//! marketplace, every dir temporary.
+//! End to end for `plugins:` with the real `claude` and `opencode` CLIs, the fake
+//! `codex`, and a local git marketplace, every dir temporary.
 //!
-//! Skipped (with a message) when the CLI is not in PATH.
+//! Tests of a real CLI are skipped (with a message) when it is not in PATH.
 
 mod common;
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use common::{Env, claude_missing, fake_bin, git, path_with};
 use serde_json::Value;
@@ -293,6 +294,123 @@ fn plugins_switch_ref_of_remote_marketplace_with_real_claude() {
     assert!(has_plugin(&env, "p3@test-market"));
 }
 
+fn codex(env: &Env, bin: &Path, args: &[&str]) -> String {
+    let exe = bin.join(format!("codex{}", std::env::consts::EXE_SUFFIX));
+    let mut cmd = Command::new(exe);
+    cmd.args(args);
+    env.isolate(&mut cmd);
+    let out = cmd.output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(out.status.success(), "codex {args:?}: {text}");
+    text
+}
+
+fn codex_version(env: &Env, bin: &Path, id: &str) -> String {
+    let list: Value =
+        serde_json::from_str(&codex(env, bin, &["plugin", "list", "--json"])).unwrap();
+    list["installed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["pluginId"] == id)
+        .map(|p| p["version"].as_str().unwrap_or_default().to_string())
+        .unwrap_or_default()
+}
+
+fn codex_marketplace_ref(env: &Env) -> String {
+    let text = std::fs::read_to_string(env.codex_dir.join("config.toml")).unwrap();
+    let config: toml::Table = toml::from_str(&text).unwrap();
+    config["marketplaces"]["test-market"]["ref"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[test]
+fn plugins_end_to_end_with_fake_codex() {
+    let mut env = Env::new();
+    let bin = fake_bin(&env, &["codex"]);
+    env.path = Some(path_with(&["git", "sh"], std::slice::from_ref(&bin)));
+    let market = env.root.path().join("market");
+    std::fs::create_dir_all(&market).unwrap();
+    git(&market, &["init", "-q", "-b", "main"]);
+    release(&market, "1.0.0", "v1");
+    let base = format!("file:///{}", market.to_string_lossy().replace('\\', "/"));
+    env.vars = vec![
+        ("GIT_CONFIG_COUNT".to_string(), "1".to_string()),
+        (
+            "GIT_CONFIG_KEY_0".to_string(),
+            format!("url.{base}.insteadOf"),
+        ),
+        ("GIT_CONFIG_VALUE_0".to_string(), REMOTE_MARKET.to_string()),
+    ];
+
+    git(&env.remote, &["init", "-q", "-b", "main"]);
+    env.push(&remote_market_yaml("v1"));
+    let url = env.remote.to_string_lossy().to_string();
+    env.ok(&["init", &url, "--profile", "work"]);
+
+    let status = env.ok(&["status"]);
+    assert!(
+        status.contains("codex:\n  plugin p1: adicionar"),
+        "{status}"
+    );
+    let applied = env.ok(&["apply", "--yes"]);
+    assert!(
+        applied.contains("codex: plugin p1: ok (adicionar)"),
+        "{applied}"
+    );
+    assert_eq!(codex_marketplace_ref(&env), "v1");
+    assert_eq!(codex_version(&env, &bin, "p1@test-market"), "1.0.0");
+    assert_eq!(codex_version(&env, &bin, "p2@test-market"), "1.0.0");
+    assert!(env.state().contains("\"plugin\": \"p1@test-market\""));
+    assert!(env.ok(&["status"]).contains("codex:\n  nada a mudar"));
+
+    release(&market, "1.1.0", "v2");
+    env.push(&remote_market_yaml("v2"));
+    assert!(env.ok(&["status"]).contains("plugin p1: atualizar"));
+    env.ok(&["apply", "--yes"]);
+    assert_eq!(codex_marketplace_ref(&env), "v2");
+    assert_eq!(codex_version(&env, &bin, "p1@test-market"), "1.1.0");
+    assert_eq!(codex_version(&env, &bin, "p2@test-market"), "1.1.0");
+    assert!(env.ok(&["status"]).contains("codex:\n  nada a mudar"));
+
+    env.push(&remote_market_yaml("missing"));
+    let (ok, out) = env.agsync(&["apply", "--yes"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("voltou para a ref antiga"), "{out}");
+    assert_eq!(codex_marketplace_ref(&env), "v2");
+    assert_eq!(codex_version(&env, &bin, "p1@test-market"), "1.1.0");
+    assert!(env.ok(&["status"]).contains("plugin p1: atualizar"));
+
+    codex(&env, &bin, &["plugin", "add", "p3@test-market", "--json"]);
+    release(&market, "1.2.0", "v3");
+    env.push(&remote_market_yaml("v3"));
+    let (ok, out) = env.agsync(&["apply", "--yes"]);
+    assert!(!ok, "{out}");
+    assert!(out.contains("troque a ref a mao"), "{out}");
+    assert!(out.contains("p3@test-market"), "{out}");
+    assert_eq!(codex_marketplace_ref(&env), "v2");
+    codex(
+        &env,
+        &bin,
+        &["plugin", "remove", "p3@test-market", "--json"],
+    );
+
+    env.push(&without_plugins(&remote_market_yaml("v3")));
+    assert!(env.ok(&["status"]).contains("plugin p1: remover"));
+    env.ok(&["apply", "--yes"]);
+    assert_eq!(codex_version(&env, &bin, "p1@test-market"), "");
+    assert_eq!(codex_version(&env, &bin, "p2@test-market"), "");
+    assert!(!env.state().contains("p1@test-market"));
+
+    env.push(&remote_market_yaml("v3"));
+    env.ok(&["apply", "--yes"]);
+    assert_eq!(codex_version(&env, &bin, "p1@test-market"), "1.2.0");
+    env.ok(&["uninstall", "--yes"]);
+    assert_eq!(codex_version(&env, &bin, "p1@test-market"), "");
+}
+
 fn opencode_plugin_repo(root: &Path) -> PathBuf {
     std::fs::create_dir_all(root).unwrap();
     let package = r#"{"name":"oc-plugin-p1","version":"1.0.0","type":"module"}"#;
@@ -362,7 +480,7 @@ fn plugins_end_to_end_with_real_opencode() {
 #[test]
 fn plugin_for_agent_without_support_is_skipped() {
     let mut env = Env::new();
-    let bin = fake_bin(&env, &["codex"]);
+    let bin = fake_bin(&env, &["hermes"]);
     env.path = Some(path_with(&["git", "sh"], &[bin]));
     let log = env.root.path().join("fake.log");
     env.vars = vec![(
@@ -370,20 +488,20 @@ fn plugin_for_agent_without_support_is_skipped() {
         log.to_string_lossy().to_string(),
     )];
     git(&env.remote, &["init", "-q", "-b", "main"]);
-    let yaml = "version: 1\nprofiles: [work]\nmcps: {}\nplugins:\n  - name: p1\n    agents: [codex]\n    marketplace: {git: 'https://x/market.git', ref: v1}\n";
+    let yaml = "version: 1\nprofiles: [work]\nmcps: {}\nplugins:\n  - name: p1\n    agents: [hermes]\n    marketplace: {git: 'https://x/market.git', ref: v1}\n";
     env.push(yaml);
     let url = env.remote.to_string_lossy().to_string();
     env.ok(&["init", &url, "--profile", "work"]);
 
     let status = env.ok(&["status"]);
-    assert!(status.contains("codex:\n  nada a mudar"), "{status}");
+    assert!(status.contains("hermes:\n  nada a mudar"), "{status}");
     assert!(
         status.contains("pulados:")
-            && status.contains("codex: plugins: CLI sem comandos nao interativos de plugins"),
+            && status.contains("hermes: plugins: CLI sem comandos nao interativos de plugins"),
         "{status}"
     );
     env.ok(&["apply", "--yes"]);
     let calls = std::fs::read_to_string(&log).unwrap_or_default();
     assert!(!calls.contains("plugin"), "{calls}");
-    assert!(env.ok(&["status"]).contains("codex: plugins: CLI sem"));
+    assert!(env.ok(&["status"]).contains("hermes: plugins: CLI sem"));
 }

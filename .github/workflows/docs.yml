@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7.0.1
 
       - name: Install the stable Rust toolchain
         run: |
@@ -40,7 +40,7 @@ jobs:
           rustup default stable
 
       - name: Cache cargo registry and build output
-        uses: Swatinem/rust-cache@v2.8.0
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Build agsync for the CLI help
         run: cargo build --locked

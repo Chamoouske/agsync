@@ -20,9 +20,10 @@ jobs:
       GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - name: Check out the merge script
-        uses: actions/checkout@v4.2.2
+      - name: Check out the repository with the stage and master history
+        uses: actions/checkout@v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Open the stage to master pull request and turn on auto-merge
@@ -34,6 +35,11 @@ jobs:
           changed=$(gh api "repos/$GH_REPO/compare/master...stage" --jq '.files | length')
           if [ "$changed" -eq 0 ]; then
             echo "stage has no changes for master"
+            exit 0
+          fi
+          if git log --no-merges --format=%s origin/master..origin/stage | scripts/only-deps.sh; then
+            echo "stage only has dependency updates for master; skipping the promotion"
+            echo "Skipped: stage only has \`chore(deps)\`/\`ci(deps)\` commits for master. They go out with the next promotion that has another change." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           url=$(gh pr list --base master --head stage --state open --json url --jq '.[0].url // empty')
