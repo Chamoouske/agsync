@@ -4,6 +4,35 @@ Todas as mudanças relevantes do agsync ficam neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versões seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/). As seções novas são geradas na release pelo [git-cliff](https://git-cliff.org/) a partir dos Conventional Commits: veja [Releases](https://chamoouske.github.io/agsync/contribuicao/releases.html#changelog).
 
+## [0.15.0] - 2026-11-26
+
+### Adicionado
+
+- Install plugins from agsync.yaml with the codex CLI (PER-40)
+
+### Documentação
+
+- Document Codex plugin support (PER-40)
+- Describe the Dependabot schedule, grouping and commit prefixes
+- Document that dependency-only stage changes are not promoted
+
+### CI
+
+- Open weekly grouped update PRs to stage for cargo and actions
+- Skip the promotion when stage only has dependency updates
+- Bump softprops/action-gh-release from 2.2.2 to 3.0.4
+- Bump Swatinem/rust-cache
+- Bump actions/download-artifact from 4.3.0 to 8.0.2
+- Bump actions/upload-artifact from 4.6.2 to 7.0.2
+- Bump actions/checkout from 4.2.2 to 7.0.1
+
+### Manutenção
+
+- Bump the cargo-minor-patch group with 4 updates
+- Bump windows from 0.61.3 to 0.62.2
+
+[0.15.0]: https://github.com/Chamoouske/agsync/compare/v0.14.4...v0.15.0
+
 ## [0.14.4] - 2026-11-25
 
 ### Documentação
