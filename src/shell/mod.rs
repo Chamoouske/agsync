@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use serde::Serialize;
 
 use crate::paths::Dirs;
 
@@ -43,35 +44,86 @@ pub fn install(confirm: &dyn crate::prompt::Confirm) -> anyhow::Result<bool> {
         println!("sem TTY: hook de shell nao instalado; rode `agsync hook install --yes`");
         return Ok(true);
     }
+    let mut ok = true;
+    offer(confirm, &mut |hooked| {
+        hooked.print();
+        ok &= !matches!(hooked, Hooked::Failed { .. });
+    })?;
+    Ok(ok)
+}
+
+/// What happened to the hook of one shell.
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum Hooked {
+    NoProfile { shell: String },
+    Declined { shell: String, profile: PathBuf },
+    Installed { shell: String, profile: PathBuf },
+    AlreadyThere { shell: String, profile: PathBuf },
+    Failed { shell: String, reason: String },
+}
+
+impl Hooked {
+    /// The line `agsync hook install` prints; none for a declined shell.
+    pub fn print(&self) {
+        match self {
+            Hooked::NoProfile { shell } => {
+                eprintln!("{shell}: perfil nao encontrado; hook nao instalado")
+            }
+            Hooked::Declined { .. } => {}
+            Hooked::Installed { shell, profile } => {
+                println!("{shell}: hook instalado em {}", profile.display())
+            }
+            Hooked::AlreadyThere { shell, profile } => {
+                println!("{shell}: hook ja estava em {}", profile.display())
+            }
+            Hooked::Failed { shell, reason } => eprintln!("{shell}: hook nao instalado: {reason}"),
+        }
+    }
+}
+
+/// Asks `confirm` once per shell on this machine and installs the hook where it says
+/// yes, without printing. `each` gets every shell's outcome right after it happens.
+pub fn offer(
+    confirm: &dyn crate::prompt::Confirm,
+    each: &mut dyn FnMut(Hooked),
+) -> anyhow::Result<()> {
     let exe = crate::paths::current_exe()?;
     let backups = Dirs::from_env()?.backups();
-    let mut ok = true;
     for shell in all().into_iter().filter(|s| s.present()) {
+        let name = shell.name().to_string();
         let Some(profile) = shell.profile() else {
-            eprintln!(
-                "{}: perfil nao encontrado; hook nao instalado",
-                shell.name()
-            );
+            each(Hooked::NoProfile { shell: name });
             continue;
         };
         let question = format!(
-            "Instalar o hook do agsync no {} ({})?",
-            shell.name(),
+            "Instalar o hook do agsync no {name} ({})?",
             profile.display()
         );
         if !confirm.ask(&question)? {
+            each(Hooked::Declined {
+                shell: name,
+                profile,
+            });
             continue;
         }
-        match install_into(&profile, &shell.body(&exe), &backups) {
-            Ok(true) => println!("{}: hook instalado em {}", shell.name(), profile.display()),
-            Ok(false) => println!("{}: hook ja estava em {}", shell.name(), profile.display()),
-            Err(e) => {
-                ok = false;
-                eprintln!("{}: hook nao instalado: {e:#}", shell.name());
-            }
-        }
+        let hooked = match install_into(&profile, &shell.body(&exe), &backups) {
+            Ok(true) => Hooked::Installed {
+                shell: name,
+                profile,
+            },
+            Ok(false) => Hooked::AlreadyThere {
+                shell: name,
+                profile,
+            },
+            Err(e) => Hooked::Failed {
+                shell: name,
+                reason: format!("{e:#}"),
+            },
+        };
+        each(hooked);
     }
-    Ok(ok)
+    Ok(())
 }
 
 /// Removes the block from every known profile that has it.

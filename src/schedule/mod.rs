@@ -7,6 +7,8 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
 use crate::host::Host;
 use crate::machine::Machine;
 use crate::paths::Dirs;
@@ -111,15 +113,41 @@ pub fn current_frozen_path() -> String {
     frozen_path(&path, crate::host::current())
 }
 
-/// `agsync schedule install`: every `check_interval_minutes` of `machine.toml` (default 15).
-pub fn install() -> anyhow::Result<()> {
+/// The check as registered by [`register`].
+#[derive(Serialize, Debug)]
+pub struct Scheduled {
+    pub exe: PathBuf,
+    pub minutes: u32,
+    pub notes: Vec<String>,
+}
+
+impl Scheduled {
+    /// The lines `agsync schedule install` prints.
+    pub fn print(&self) {
+        let exe = self.exe.display();
+        println!("agendado: `{exe} check` a cada {} min", self.minutes);
+        for note in &self.notes {
+            println!("{note}");
+        }
+    }
+}
+
+/// Registers the check every `check_interval_minutes` of `machine.toml` (default 15),
+/// without printing.
+pub fn register() -> anyhow::Result<Scheduled> {
     let exe = crate::paths::current_exe()?;
     let minutes = interval()?;
     let notes = for_this_machine().install(&exe, minutes)?;
-    println!("agendado: `{} check` a cada {minutes} min", exe.display());
-    for note in notes {
-        println!("{note}");
-    }
+    Ok(Scheduled {
+        exe,
+        minutes,
+        notes,
+    })
+}
+
+/// `agsync schedule install`: [`register`], then what was registered.
+pub fn install() -> anyhow::Result<()> {
+    register()?.print();
     Ok(())
 }
 
