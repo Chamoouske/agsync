@@ -7,7 +7,7 @@ use crate::paths::Dirs;
 use crate::report::{Inputs, Report, read_manifest};
 
 /// Plans the previous commit, shows the diff, asks and applies it.
-pub fn rollback(yes: bool) -> anyhow::Result<()> {
+pub fn rollback(confirm: &dyn crate::prompt::Confirm) -> anyhow::Result<()> {
     let _lock = Lock::wait(&Dirs::from_env()?)?;
     let inputs = Inputs::load()?;
     let Some(previous) = inputs.state.previous.clone() else {
@@ -24,7 +24,7 @@ pub fn rollback(yes: bool) -> anyhow::Result<()> {
     let manifest = read_manifest(&snapshot)?;
     let report = Report::plan(inputs, previous.clone(), snapshot, manifest, false)?;
     forget_watch(&report.dirs)?;
-    if !crate::apply::write(report, yes, "agsync rollback", |_| Ok(()))? {
+    if !crate::apply::write(report, confirm, "agsync rollback", |_| Ok(()))? {
         return Ok(());
     }
     println!("aplicado o commit anterior {previous}");

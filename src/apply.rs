@@ -1,7 +1,6 @@
 //! `agsync apply`: write planned changes, one item at a time.
 
 use std::collections::BTreeSet;
-use std::io::IsTerminal;
 
 use crate::agent::link;
 use crate::cleanup;
@@ -9,6 +8,7 @@ use crate::lock::Lock;
 use crate::paths::Dirs;
 use crate::pending::Pending;
 use crate::plan::{Action, Change};
+use crate::prompt::{Confirm, Terminal};
 use crate::report::{AgentPlan, Report};
 use crate::state::State;
 use crate::watch::Watch;
@@ -17,10 +17,10 @@ use crate::watch::Watch;
 pub type AfterClean = fn(&Report) -> anyhow::Result<()>;
 
 /// `agsync apply`: plans the remote head and writes it.
-pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
+pub fn apply(confirm: &dyn Confirm, adopt: bool) -> anyhow::Result<()> {
     let _lock = Lock::wait(&Dirs::from_env()?)?;
     let report = Report::build(adopt)?;
-    write(report, yes, "agsync apply", settle_check).map(|_| ())
+    write(report, confirm, "agsync apply", settle_check).map(|_| ())
 }
 
 /// `agsync init`'s last step: [`apply`] that does not ask when `silent` is set or
@@ -28,7 +28,7 @@ pub fn apply(yes: bool, adopt: bool) -> anyhow::Result<()> {
 /// false when it would have to ask without a terminal; nothing is written then.
 pub fn init_apply(yes: bool, silent: bool) -> anyhow::Result<bool> {
     let _lock = Lock::wait(&Dirs::from_env()?)?;
-    let no_tty = !std::io::stdin().is_terminal();
+    let no_tty = !Terminal.can_answer();
     let skip_without_asking = !yes && !silent && no_tty;
     let report = match Report::build(false) {
         Err(_) if skip_without_asking => return Ok(false),
@@ -43,12 +43,12 @@ pub fn init_apply(yes: bool, silent: bool) -> anyhow::Result<bool> {
     if let Some(note) = note {
         println!("{note}");
     }
-    let yes = skip_prompt;
-    if !yes && no_tty {
+    if !skip_prompt && no_tty {
         report.snapshot.close()?;
         return Ok(false);
     }
-    write(report, yes, "agsync apply", settle_check)?;
+    let confirm = crate::prompt::from_flag(skip_prompt);
+    write(report, confirm, "agsync apply", settle_check)?;
     Ok(true)
 }
 
@@ -88,7 +88,7 @@ fn init_confirm(
 /// The caller holds the lock.
 pub fn write(
     report: Report,
-    yes: bool,
+    confirm: &dyn Confirm,
     command: &str,
     after_clean: AfterClean,
 ) -> anyhow::Result<bool> {
@@ -97,7 +97,7 @@ pub fn write(
     let pending = report.has_pending();
 
     let question = "Aplicar estas mudancas?";
-    if pending && !crate::prompt::confirm(yes, question, command)? {
+    if pending && !crate::prompt::confirm(confirm, question, command)? {
         report.snapshot.close()?;
         return Ok(false);
     }

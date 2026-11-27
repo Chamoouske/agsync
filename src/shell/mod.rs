@@ -1,7 +1,6 @@
 //! Shell profiles that run `agsync hook` at startup: one small interface, one module
 //! per shell. `install` and `remove` are reusable by `init` and `uninstall`.
 
-use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -39,9 +38,8 @@ pub fn all() -> Vec<Box<dyn Shell>> {
 
 /// Offers the hook to each shell on this machine, one y/n question per shell. Without a
 /// terminal nothing is installed unless `yes`. Returns false when a profile failed.
-pub fn install(yes: bool) -> anyhow::Result<bool> {
-    let interactive = std::io::stdin().is_terminal();
-    if !yes && !interactive {
+pub fn install(confirm: &dyn crate::prompt::Confirm) -> anyhow::Result<bool> {
+    if !confirm.can_answer() {
         println!("sem TTY: hook de shell nao instalado; rode `agsync hook install --yes`");
         return Ok(true);
     }
@@ -61,7 +59,7 @@ pub fn install(yes: bool) -> anyhow::Result<bool> {
             shell.name(),
             profile.display()
         );
-        if !yes && !crate::prompt::yes_no(&question)? {
+        if !confirm.ask(&question)? {
             continue;
         }
         match install_into(&profile, &shell.body(&exe), &backups) {
