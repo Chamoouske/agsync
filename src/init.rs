@@ -1,8 +1,8 @@
 //! `agsync init` on the terminal: asks what is missing, then prints each step as it runs.
 
-use super::{Access, FirstApply, Options, Saved, Scheduling};
-use crate::machine::Machine;
-use crate::paths::Dirs;
+use agsync_core::init::{Access, FirstApply, Options, Saved, Scheduling};
+use agsync_core::machine::Machine;
+use agsync_core::paths::Dirs;
 
 /// Runs every step. Returns false when a step failed. A missing `url` or empty
 /// `profiles` is asked on the terminal; given values are kept as they are.
@@ -16,10 +16,10 @@ pub fn init(
     let dirs = Dirs::from_env()?;
     let url = match url {
         Some(url) => url,
-        None => crate::prompt::ask("URL do repo de config")?,
+        None => agsync_core::prompt::ask("URL do repo de config")?,
     };
     let profiles = if profiles.is_empty() {
-        split_profiles(&crate::prompt::ask(
+        split_profiles(&agsync_core::prompt::ask(
             "Perfis desta maquina (separados por virgula)",
         )?)
     } else {
@@ -34,24 +34,25 @@ pub fn init(
     };
 
     println!("[1/5] machine.toml");
-    let saved = super::save(&dirs, &options)?;
+    let saved = agsync_core::init::save(&dirs, &options)?;
     print_saved(&saved);
 
     println!("[2/5] acesso ao repo");
-    let access = super::check_access(&saved.machine);
+    let access = agsync_core::init::check_access(&saved.machine);
     print_access(&saved.machine, &access);
 
     println!("[3/5] agendamento do check");
-    print_schedule(&super::schedule());
+    print_schedule(&agsync_core::init::schedule());
 
     println!("[4/5] hook de shell");
-    let hooked = crate::shell::install(crate::prompt::from_flag(yes)).unwrap_or_else(|e| {
-        eprintln!("hook de shell falhou: {e:#}");
-        false
-    });
+    let hooked =
+        agsync_core::shell::install(agsync_core::prompt::from_flag(yes)).unwrap_or_else(|e| {
+            eprintln!("hook de shell falhou: {e:#}");
+            false
+        });
 
     println!("[5/5] primeiro apply");
-    let apply = super::first_apply(&access, yes, silent);
+    let apply = agsync_core::init::first_apply(&access, yes, silent);
     print_apply(&apply);
 
     let reachable = matches!(access, Access::Reachable { .. });
