@@ -2,8 +2,8 @@
 
 use std::io::{BufRead, IsTerminal};
 
-use crate::paths::Dirs;
-use crate::secret;
+use agsync_core::paths::Dirs;
+use agsync_core::secret;
 
 /// Reads a value (no echo on a terminal, else one stdin line) and stores it in `secrets.env`.
 pub fn secret_set(name: &str) -> anyhow::Result<()> {

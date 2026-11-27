@@ -67,7 +67,7 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           sed -i "0,/^version = .*/s//version = \"$VERSION\"/" Cargo.toml
-          sed -i "/^name = \"agsync\"/{n;s/^version = .*/version = \"$VERSION\"/}" Cargo.lock
+          sed -i -E "/^name = \"agsync(-core)?\"$/{n;s/^version = .*/version = \"$VERSION\"/}" Cargo.lock
 
       - name: Install the stable Rust toolchain for the target
         run: |

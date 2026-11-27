@@ -1,4 +1,4 @@
-//! `agsync::init::run` with every answer given: steps come back as data, the repo
+//! `agsync_core::init::run` with every answer given: steps come back as data, the repo
 //! error carries its reason and the hook questions go to the given `Confirm`.
 //!
 //! One test only: it moves this process into an isolated [`Env`].
@@ -8,9 +8,9 @@ mod common;
 use std::cell::RefCell;
 use std::process::Command;
 
-use agsync::init::{Access, FirstApply, Hook, Options, Scheduling};
-use agsync::prompt::Confirm;
-use agsync::shell::Hooked;
+use agsync_core::init::{Access, FirstApply, Hook, Options, Scheduling};
+use agsync_core::prompt::Confirm;
+use agsync_core::shell::Hooked;
 use common::Env;
 
 /// Answers no to everything and keeps the questions.
@@ -54,7 +54,7 @@ fn run_returns_each_step_as_data() {
     };
     let confirm = No::default();
 
-    let outcome = agsync::init::run(&options, &confirm).unwrap();
+    let outcome = agsync_core::init::run(&options, &confirm).unwrap();
 
     assert!(!outcome.ok());
     assert_eq!(outcome.saved.file, env.config.join("machine.toml"));

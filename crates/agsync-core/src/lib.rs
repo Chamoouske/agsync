@@ -8,7 +8,6 @@ pub mod background;
 pub mod check;
 pub mod checklog;
 pub mod cleanup;
-pub mod cmd;
 pub mod compose;
 pub mod deliver;
 pub mod desired;

@@ -127,16 +127,19 @@ fn notification_daemon_running() -> bool {
 
 #[test]
 fn notify_send_shows_a_real_notification() {
-    use agsync::notify::Notifier;
+    use agsync_core::notify::Notifier;
     let session =
         std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
-    if agsync::which::find("notify-send").is_none() || !session || !notification_daemon_running() {
+    if agsync_core::which::find("notify-send").is_none()
+        || !session
+        || !notification_daemon_running()
+    {
         eprintln!(
             "SKIP notify-send: precisa de notify-send, sessao grafica e um servidor de notificacoes no D-Bus"
         );
         return;
     }
-    agsync::notify::notify_send::NotifySend
+    agsync_core::notify::notify_send::NotifySend
         .notify("agsync", "teste do agsync: notify-send real")
         .unwrap();
 }
@@ -145,7 +148,7 @@ fn notify_send_shows_a_real_notification() {
 fn dirs_of(tools: &[&str]) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     for tool in tools {
-        let dir = agsync::which::find(tool)
+        let dir = agsync_core::which::find(tool)
             .unwrap()
             .parent()
             .unwrap()
@@ -162,7 +165,7 @@ fn hook_runs_in_real_interactive_bash_zsh_and_fish() {
     let shells = ["bash", "zsh", "fish"];
     let missing: Vec<&str> = shells
         .into_iter()
-        .filter(|s| agsync::which::find(s).is_none())
+        .filter(|s| agsync_core::which::find(s).is_none())
         .collect();
     if !missing.is_empty() {
         eprintln!("SKIP shells: {missing:?} nao estao no PATH");
@@ -189,7 +192,7 @@ fn hook_runs_in_real_interactive_bash_zsh_and_fish() {
     }
 
     for shell in shells {
-        let mut cmd = Command::new(agsync::which::find(shell).unwrap());
+        let mut cmd = Command::new(agsync_core::which::find(shell).unwrap());
         cmd.args(["-i", "-c", "true"]);
         env.isolate(&mut cmd);
         let out = cmd.output().unwrap();
@@ -201,7 +204,7 @@ fn hook_runs_in_real_interactive_bash_zsh_and_fish() {
 
     env.ok(&["hook", "remove"]);
     for shell in shells {
-        let mut cmd = Command::new(agsync::which::find(shell).unwrap());
+        let mut cmd = Command::new(agsync_core::which::find(shell).unwrap());
         cmd.args(["-i", "-c", "true"]);
         env.isolate(&mut cmd);
         let out = cmd.output().unwrap();

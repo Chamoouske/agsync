@@ -11,9 +11,9 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use agsync::schedule::cron::Cron;
-use agsync::schedule::systemd::Systemd;
-use agsync::schedule::{self, Scheduler};
+use agsync_core::schedule::cron::Cron;
+use agsync_core::schedule::systemd::Systemd;
+use agsync_core::schedule::{self, Scheduler};
 use common::Env;
 
 struct Cleanup {
@@ -93,8 +93,8 @@ fn cron_has(crontab: &Path, name: &str) -> bool {
 
 #[test]
 fn systemd_then_cron_then_nothing() {
-    let systemctl = agsync::which::find("systemctl");
-    let crontab = agsync::which::find("crontab");
+    let systemctl = agsync_core::which::find("systemctl");
+    let crontab = agsync_core::which::find("crontab");
     let (Some(systemctl), Some(crontab)) = (systemctl, crontab) else {
         eprintln!("SKIP chain: precisa de systemctl e crontab no PATH");
         return;

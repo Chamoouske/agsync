@@ -6,10 +6,25 @@ version = 4
 name = "agsync"
 version = "0.1.0"
 dependencies = [
+ "agsync-core",
  "anyhow",
  "clap",
  "jsonc-parser",
  "rpassword",
+ "serde-saphyr",
+ "serde_json",
+ "sha2",
+ "toml",
+ "toml_edit",
+ "winresource",
+]
+
+[[package]]
+name = "agsync-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "jsonc-parser",
  "serde",
  "serde-saphyr",
  "serde_json",
@@ -19,7 +34,6 @@ dependencies = [
  "windows",
  "windows-sys",
  "winreg",
- "winresource",
 ]
 
 [[package]]

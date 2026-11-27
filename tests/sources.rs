@@ -149,7 +149,7 @@ fn checkout(env: &Env, name: &str, sha: &str) -> PathBuf {
 }
 
 fn built(dir: &Path) -> bool {
-    dir.join(agsync::source::BUILT_MARK).is_file()
+    dir.join(agsync_core::source::BUILT_MARK).is_file()
 }
 
 fn arg0(env: &Env, name: &str) -> String {
@@ -185,7 +185,7 @@ fn git_sources_secrets_cleanup_and_doctor() {
     );
     assert!(ok, "{input_text}");
     let secrets_file = env.config.join("secrets.env");
-    assert!(agsync::secret::file::is_private(&secrets_file).unwrap());
+    assert!(agsync_core::secret::file::is_private(&secrets_file).unwrap());
     assert_eq!(env.ok(&["secret", "list"]).trim(), "E2E_FILE_SECRET");
 
     let status = env.ok(&["status"]);
@@ -244,7 +244,7 @@ fn git_sources_secrets_cleanup_and_doctor() {
     );
     assert!(state.contains(&sha1), "{state}");
 
-    if agsync::which::find("node").is_some() {
+    if agsync_core::which::find("node").is_some() {
         let got = env.claude(&["mcp", "get", "probe"]);
         assert!(got.contains("${E2E_ENV_SECRET}"), "{got}");
         let probe_out = checkout(&env, "probe", &sha1).join("probe-out.json");
@@ -333,7 +333,7 @@ fn git_sources_secrets_cleanup_and_doctor() {
     assert!(doctor.contains("tudo certo"), "{doctor}");
 
     let machine_file = env.config.join("machine.toml");
-    let mut machine = agsync::machine::Machine::load(&machine_file).unwrap();
+    let mut machine = agsync_core::machine::Machine::load(&machine_file).unwrap();
     let bad_url = env.root.path().join("no-such-repo");
     machine.repo = bad_url.to_string_lossy().to_string();
     machine.save(&machine_file).unwrap();

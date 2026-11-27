@@ -26,7 +26,7 @@ fn real_profiles() -> Vec<PathBuf> {
             .join("conf.d")
             .join("agsync.fish"),
     ];
-    if let Some(exe) = agsync::which::find("powershell") {
+    if let Some(exe) = agsync_core::which::find("powershell") {
         let out = Command::new(exe)
             .args([
                 "-NoProfile",

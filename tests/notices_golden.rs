@@ -61,11 +61,11 @@ fn nothing_recorded_prints_nothing() {
 #[test]
 fn notices_serialize_to_json() {
     let env = setup();
-    let dirs = agsync::paths::Dirs {
+    let dirs = agsync_core::paths::Dirs {
         config: env.config.clone(),
         data: env.data.clone(),
     };
-    let notices = agsync::pending::Notices::load(&dirs);
+    let notices = agsync_core::pending::Notices::load(&dirs);
     assert_eq!(notices.lines().concat(), lines().replace('\n', ""));
     let json = serde_json::to_value(&notices).unwrap();
     assert_eq!(json["newer"], "99.0.0");
