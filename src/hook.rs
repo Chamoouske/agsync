@@ -10,17 +10,14 @@ use anyhow::Context;
 
 use crate::machine::Machine;
 use crate::paths::Dirs;
-use crate::pending::Pending;
+use crate::pending::Notices;
 
 /// Prints the pending and new version lines, if any, and starts a background check when the last one is
 /// older than twice the interval (no working scheduler, as in WSL without systemd).
 pub fn hook() -> anyhow::Result<()> {
     let dirs = Dirs::from_env()?;
-    if let Some(pending) = Pending::load(&dirs.pending_file()) {
-        println!("{}", pending.line());
-    }
-    if let Some(newer) = crate::update::recorded(&dirs) {
-        println!("{}", crate::update::line(newer));
+    for line in Notices::load(&dirs).lines() {
+        println!("{line}");
     }
     if check_overdue(&dirs) {
         start_check(&dirs)?;
@@ -34,11 +31,8 @@ pub fn warn_pending() {
     let Ok(dirs) = Dirs::from_env() else {
         return;
     };
-    if let Some(pending) = Pending::load(&dirs.pending_file()) {
-        eprintln!("{}", pending.line());
-    }
-    if let Some(newer) = crate::update::recorded(&dirs) {
-        eprintln!("{}", crate::update::line(newer));
+    for line in Notices::load(&dirs).lines() {
+        eprintln!("{line}");
     }
 }
 
