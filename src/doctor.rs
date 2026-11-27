@@ -148,6 +148,9 @@ pub fn hint(error: &str) -> Option<&'static str> {
         "401",
         "403",
     ];
+    if git::ssh_hint(&text).is_some() {
+        return None;
+    }
     if tls.iter().any(|w| text.contains(w)) {
         return Some(
             "erro de TLS/certificado: aponte o git para a CA corporativa com \
@@ -372,5 +375,12 @@ mod tests {
             "fatal: could not read Username for 'https://git.corp': terminal prompts disabled";
         assert!(hint(no_prompt).unwrap().contains("GIT_TERMINAL_PROMPT=0"));
         assert!(hint("fatal: repository not found").is_none());
+    }
+
+    #[test]
+    fn ssh_failure_shows_the_agent_hint_once() {
+        let text = "git ls-remote falhou: git@host: Permission denied (publickey).";
+        assert!(git::ssh_hint(text).unwrap().contains("ssh-add"));
+        assert!(hint(text).is_none());
     }
 }
