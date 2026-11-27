@@ -12,12 +12,12 @@ use crate::paths::Dirs;
 use crate::state::{AgentState, State};
 
 /// Runs the uninstall after one confirmation. False when some step failed.
-pub fn uninstall(yes: bool, purge: bool) -> anyhow::Result<bool> {
+pub fn uninstall(confirm: &dyn crate::prompt::Confirm, purge: bool) -> anyhow::Result<bool> {
     let dirs = Dirs::from_env()?;
     let exe = crate::paths::current_exe()?;
     print_plan(&dirs, purge);
     let question = "Desinstalar o agsync desta maquina?";
-    if !crate::prompt::confirm(yes, question, "agsync uninstall")? {
+    if !crate::prompt::confirm(confirm, question, "agsync uninstall")? {
         return Ok(true);
     }
     let lock = Lock::wait(&dirs)?;

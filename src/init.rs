@@ -60,7 +60,7 @@ pub fn init(
     }
 
     println!("[4/5] hook de shell");
-    let hooked = crate::shell::install(yes).unwrap_or_else(|e| {
+    let hooked = crate::shell::install(crate::prompt::from_flag(yes)).unwrap_or_else(|e| {
         eprintln!("hook de shell falhou: {e:#}");
         false
     });

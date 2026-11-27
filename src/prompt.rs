@@ -1,29 +1,69 @@
-//! Yes/no questions on the terminal.
+//! Yes/no questions: asked on the terminal, or answered by `--yes`.
 
 use std::io::{BufRead, IsTerminal, Write};
 
-/// Prints `question [s/N] ` and reads one line; only s/sim/y/yes count as yes.
-pub fn yes_no(question: &str) -> anyhow::Result<bool> {
-    print!("{question} [s/N] ");
-    std::io::stdout().flush()?;
+/// Who answers a yes/no question.
+pub trait Confirm {
+    /// False when nobody can answer, as on a terminal without a TTY.
+    fn can_answer(&self) -> bool;
+    /// The answer to `question`.
+    fn ask(&self, question: &str) -> anyhow::Result<bool>;
+}
+
+/// Asks on the terminal.
+pub struct Terminal;
+
+impl Confirm for Terminal {
+    fn can_answer(&self) -> bool {
+        std::io::stdin().is_terminal()
+    }
+
+    fn ask(&self, question: &str) -> anyhow::Result<bool> {
+        yes_no(
+            question,
+            &mut std::io::stdin().lock(),
+            &mut std::io::stdout(),
+        )
+    }
+}
+
+/// Says yes without asking: `--yes`, `--silent-update` and `silentUpdate`.
+pub struct Yes;
+
+impl Confirm for Yes {
+    fn can_answer(&self) -> bool {
+        true
+    }
+
+    fn ask(&self, _question: &str) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+}
+
+/// [`Yes`] with `yes`, else [`Terminal`].
+pub fn from_flag(yes: bool) -> &'static dyn Confirm {
+    if yes { &Yes } else { &Terminal }
+}
+
+/// Writes `question [s/N] ` and reads one line; only s/sim/y/yes count as yes.
+fn yes_no(question: &str, input: &mut impl BufRead, out: &mut impl Write) -> anyhow::Result<bool> {
+    write!(out, "{question} [s/N] ")?;
+    out.flush()?;
     let mut answer = String::new();
-    std::io::stdin().lock().read_line(&mut answer)?;
+    input.read_line(&mut answer)?;
     Ok(matches!(
         answer.trim().to_lowercase().as_str(),
         "s" | "sim" | "y" | "yes"
     ))
 }
 
-/// True with `yes`; without a terminal, an error naming `command --yes`; else asks
-/// `question` and prints "cancelado" on no.
-pub fn confirm(yes: bool, question: &str, command: &str) -> anyhow::Result<bool> {
-    if yes {
-        return Ok(true);
-    }
-    if !std::io::stdin().is_terminal() {
+/// Asks `confirm`; when it cannot answer, an error naming `command --yes`; prints
+/// "cancelado" on no.
+pub fn confirm(confirm: &dyn Confirm, question: &str, command: &str) -> anyhow::Result<bool> {
+    if !confirm.can_answer() {
         anyhow::bail!("sem TTY: nada feito; rode `{command} --yes`");
     }
-    let ok = yes_no(question)?;
+    let ok = confirm.ask(question)?;
     if !ok {
         println!("cancelado");
     }
@@ -47,3 +87,6 @@ pub fn ask(question: &str) -> anyhow::Result<String> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

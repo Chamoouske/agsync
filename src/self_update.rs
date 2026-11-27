@@ -30,7 +30,7 @@ fn release_asset(os: &str, arch: &str) -> Option<&'static str> {
 }
 
 /// Updates to the latest release after one confirmation.
-pub fn update(yes: bool) -> anyhow::Result<bool> {
+pub fn update(confirm: &dyn crate::prompt::Confirm) -> anyhow::Result<bool> {
     let dirs = Dirs::from_env()?;
     let current = Version::current();
     let latest = update::latest()?;
@@ -53,7 +53,7 @@ pub fn update(yes: bool) -> anyhow::Result<bool> {
         );
     };
     let question = format!("atualizar {} de {current} para {latest}?", exe.display());
-    if !crate::prompt::confirm(yes, &question, "agsync update")? {
+    if !crate::prompt::confirm(confirm, &question, "agsync update")? {
         return Ok(true);
     }
     install(&exe, latest, asset)?;

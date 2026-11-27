@@ -74,7 +74,7 @@ fn system() -> Box<dyn System> {
 }
 
 /// Lists, asks, backs up and removes. False when some item failed.
-pub fn migrate_legacy(yes: bool) -> anyhow::Result<bool> {
+pub fn migrate_legacy(confirm: &dyn crate::prompt::Confirm) -> anyhow::Result<bool> {
     let dirs = Dirs::from_env()?;
     let home = crate::paths::home()?;
     let system = system();
@@ -91,7 +91,7 @@ pub fn migrate_legacy(yes: bool) -> anyhow::Result<bool> {
         return Ok(true);
     }
     let question = "Fazer backup e remover estes itens?";
-    if !crate::prompt::confirm(yes, question, "agsync migrate-legacy")? {
+    if !crate::prompt::confirm(confirm, question, "agsync migrate-legacy")? {
         return Ok(true);
     }
     crate::secret::file::private_dir(&dirs.backups())?;
