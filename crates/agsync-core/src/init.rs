@@ -124,14 +124,14 @@ impl FirstApply {
 }
 
 /// Runs every step with `options`, without reading stdin or printing in steps 1 to 4.
-/// `confirm` answers the shell hook questions. Errs only when machine.toml cannot be
+/// `confirm` answers the shell hook and first apply questions. Errs only when machine.toml cannot be
 /// written. The first apply still prints its plan and results.
 pub fn run(options: &Options, confirm: &dyn Confirm) -> anyhow::Result<Outcome> {
     let saved = save(&Dirs::from_env()?, options)?;
     let access = check_access(&saved.machine);
     let schedule = schedule();
     let hook = hook(confirm);
-    let apply = first_apply(&access, options.yes, options.silent);
+    let apply = first_apply(&access, confirm, options.yes, options.silent);
     Ok(Outcome {
         saved,
         access,
@@ -190,11 +190,11 @@ pub fn hook(confirm: &dyn Confirm) -> Hook {
 }
 
 /// Step 5: the first apply, skipped when the repo is unreachable.
-pub fn first_apply(access: &Access, yes: bool, silent: bool) -> FirstApply {
+pub fn first_apply(access: &Access, asker: &dyn Confirm, yes: bool, silent: bool) -> FirstApply {
     if !matches!(access, Access::Reachable { .. }) {
         return FirstApply::Unreachable;
     }
-    match crate::apply::init_apply(yes, silent) {
+    match crate::apply::init_apply(asker, yes, silent) {
         Ok(true) => FirstApply::Applied,
         Ok(false) => FirstApply::NoTty,
         Err(e) => FirstApply::Failed {

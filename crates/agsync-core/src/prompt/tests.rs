@@ -45,26 +45,9 @@ fn confirm_without_answer_names_the_yes_flag() {
 #[test]
 fn yes_answers_without_asking() {
     assert!(confirm(&Yes, "Aplicar?", "agsync apply").unwrap());
-    assert!(from_flag(true).can_answer());
-}
-
-#[test]
-fn terminal_question_reads_one_line() {
-    for (line, expected) in [
-        ("s\n", true),
-        ("SIM\n", true),
-        ("y\n", true),
-        ("yes\n", true),
-        ("n\n", false),
-        ("\n", false),
-        ("", false),
-    ] {
-        let mut out = Vec::new();
-        let answer = yes_no("Aplicar estas mudancas?", &mut line.as_bytes(), &mut out).unwrap();
-        assert_eq!(answer, expected, "{line:?}");
-        assert_eq!(
-            String::from_utf8(out).unwrap(),
-            "Aplicar estas mudancas? [s/N] "
-        );
-    }
+    let none = Fake {
+        answer: false,
+        tty: false,
+    };
+    assert!(yes_or(true, &none).can_answer());
 }

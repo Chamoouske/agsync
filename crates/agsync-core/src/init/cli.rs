@@ -3,10 +3,14 @@
 use super::{Access, FirstApply, Options, Saved, Scheduling};
 use crate::machine::Machine;
 use crate::paths::Dirs;
+use crate::prompt::Confirm;
 
 /// Runs every step. Returns false when a step failed. A missing `url` or empty
-/// `profiles` is asked on the terminal; given values are kept as they are.
+/// `profiles` is asked with `ask`; given values are kept as they are. `asker` answers
+/// the shell hook and first apply questions unless `yes` is set.
 pub fn init(
+    asker: &dyn Confirm,
+    ask: fn(&str) -> anyhow::Result<String>,
     url: Option<String>,
     git_ref: Option<String>,
     profiles: Vec<String>,
@@ -16,12 +20,10 @@ pub fn init(
     let dirs = Dirs::from_env()?;
     let url = match url {
         Some(url) => url,
-        None => crate::prompt::ask("URL do repo de config")?,
+        None => ask("URL do repo de config")?,
     };
     let profiles = if profiles.is_empty() {
-        split_profiles(&crate::prompt::ask(
-            "Perfis desta maquina (separados por virgula)",
-        )?)
+        split_profiles(&ask("Perfis desta maquina (separados por virgula)")?)
     } else {
         profiles
     };
@@ -45,13 +47,13 @@ pub fn init(
     print_schedule(&super::schedule());
 
     println!("[4/5] hook de shell");
-    let hooked = crate::shell::install(crate::prompt::from_flag(yes)).unwrap_or_else(|e| {
+    let hooked = crate::shell::install(crate::prompt::yes_or(yes, asker)).unwrap_or_else(|e| {
         eprintln!("hook de shell falhou: {e:#}");
         false
     });
 
     println!("[5/5] primeiro apply");
-    let apply = super::first_apply(&access, yes, silent);
+    let apply = super::first_apply(&access, asker, yes, silent);
     print_apply(&apply);
 
     let reachable = matches!(access, Access::Reachable { .. });
