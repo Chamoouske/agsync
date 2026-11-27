@@ -1,5 +1,7 @@
 //! `agsync doctor`: checks what apply needs on this machine.
 
+use serde::Serialize;
+
 use crate::agent;
 use crate::git::{self, Snapshot};
 use crate::machine::Machine;
@@ -10,44 +12,116 @@ use crate::schedule::{self, Status};
 use crate::secret::{self, Secrets};
 use crate::source;
 
-/// Collects results; any problem makes the exit code 1.
-#[derive(Default)]
-struct Checks {
-    problems: usize,
+/// How bad one check is; only `Problem` makes the exit code 1.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Level {
+    Ok,
+    Info,
+    Warn,
+    Problem,
 }
 
-impl Checks {
-    fn ok(&self, text: &str) {
-        println!("ok      {text}");
+impl Level {
+    fn label(self) -> &'static str {
+        match self {
+            Level::Ok => "ok      ",
+            Level::Info => "info    ",
+            Level::Warn => "AVISO   ",
+            Level::Problem => "PROBLEMA ",
+        }
+    }
+}
+
+/// One line of `agsync doctor`.
+#[derive(Serialize, Debug)]
+pub struct Check {
+    pub level: Level,
+    pub text: String,
+}
+
+/// Every check in run order. `complete` is false when doctor stopped early, either on
+/// an unreadable machine file or on `error`.
+#[derive(Serialize, Default, Debug)]
+pub struct Report {
+    pub checks: Vec<Check>,
+    pub complete: bool,
+    pub error: Option<String>,
+}
+
+impl Report {
+    /// Number of `Problem` checks.
+    pub fn problems(&self) -> usize {
+        let problems = self.checks.iter().filter(|c| c.level == Level::Problem);
+        problems.count()
     }
 
-    fn info(&self, text: &str) {
-        println!("info    {text}");
+    fn push(&mut self, level: Level, text: &str) {
+        let text = text.to_string();
+        self.checks.push(Check { level, text });
     }
 
-    fn warn(&self, text: &str) {
-        println!("AVISO   {text}");
+    fn ok(&mut self, text: &str) {
+        self.push(Level::Ok, text);
+    }
+
+    fn info(&mut self, text: &str) {
+        self.push(Level::Info, text);
+    }
+
+    fn warn(&mut self, text: &str) {
+        self.push(Level::Warn, text);
     }
 
     fn problem(&mut self, text: &str) {
-        self.problems += 1;
-        println!("PROBLEMA {text}");
+        self.push(Level::Problem, text);
     }
 }
 
 /// Runs every check and prints one line each. Returns true if nothing is wrong.
 pub fn doctor() -> anyhow::Result<bool> {
-    let mut checks = Checks::default();
+    let report = report();
+    print(&report);
+    if let Some(error) = &report.error {
+        anyhow::bail!("{error}");
+    }
+    Ok(report.problems() == 0)
+}
+
+/// Runs every check without printing.
+pub fn report() -> Report {
+    let mut report = Report::default();
+    match run(&mut report) {
+        Ok(complete) => report.complete = complete,
+        Err(e) => report.error = Some(format!("{e:#}")),
+    }
+    report
+}
+
+fn print(report: &Report) {
+    for check in &report.checks {
+        println!("{}{}", check.level.label(), check.text);
+    }
+    if !report.complete {
+        return;
+    }
+    match report.problems() {
+        0 => println!("tudo certo"),
+        problems => println!("{problems} problema(s)"),
+    }
+}
+
+fn run(checks: &mut Report) -> anyhow::Result<bool> {
     if let Some(note) = crate::host::current().doctor_note() {
         checks.info(&note);
     }
-    check_git(&mut checks);
+    check_git(checks);
     let dirs = Dirs::from_env()?;
-    check_version(&mut checks, &dirs);
-    check_agents(&mut checks);
-    check_secrets_file(&mut checks, &dirs);
-    check_backups(&mut checks, &dirs);
-    check_schedule(&mut checks);
+    check_version(checks, &dirs);
+    check_agents(checks);
+    check_secrets_file(checks, &dirs);
+    check_backups(checks, &dirs);
+    check_schedule(checks);
     let machine = match Machine::load(&dirs.machine_file()) {
         Ok(machine) => machine,
         Err(e) => {
@@ -55,15 +129,10 @@ pub fn doctor() -> anyhow::Result<bool> {
             return Ok(false);
         }
     };
-    if let Some(manifest) = check_config_repo(&mut checks, &machine) {
-        check_items(&mut checks, &manifest, &machine.profiles, &dirs)?;
+    if let Some(manifest) = check_config_repo(checks, &machine) {
+        check_items(checks, &manifest, &machine.profiles, &dirs)?;
     }
-    if checks.problems == 0 {
-        println!("tudo certo");
-    } else {
-        println!("{} problema(s)", checks.problems);
-    }
-    Ok(checks.problems == 0)
+    Ok(true)
 }
 
 /// Extra hint for git errors: TLS/certificate or authentication.
@@ -95,14 +164,14 @@ pub fn hint(error: &str) -> Option<&'static str> {
     None
 }
 
-fn check_version(checks: &mut Checks, dirs: &Dirs) {
+fn check_version(checks: &mut Report, dirs: &Dirs) {
     checks.info(&format!("agsync {}", crate::update::Version::current()));
     if let Some(newer) = crate::update::recorded(dirs) {
         checks.info(&crate::update::line(newer));
     }
 }
 
-fn check_git(checks: &mut Checks) {
+fn check_git(checks: &mut Report) {
     if let Err(reason) = crate::which::require("git") {
         checks.problem(&reason);
         return;
@@ -113,7 +182,7 @@ fn check_git(checks: &mut Checks) {
     }
 }
 
-fn check_agents(checks: &mut Checks) {
+fn check_agents(checks: &mut Report) {
     let mut found = 0;
     for (name, detect) in agent::AGENTS {
         match detect() {
@@ -132,7 +201,7 @@ fn check_agents(checks: &mut Checks) {
     }
 }
 
-fn check_secrets_file(checks: &mut Checks, dirs: &Dirs) {
+fn check_secrets_file(checks: &mut Report, dirs: &Dirs) {
     let file = secret::file_path(&dirs.config);
     if !file.is_file() {
         checks.info(&format!("{} nao existe", file.display()));
@@ -148,7 +217,7 @@ fn check_secrets_file(checks: &mut Checks, dirs: &Dirs) {
     }
 }
 
-fn check_backups(checks: &mut Checks, dirs: &Dirs) {
+fn check_backups(checks: &mut Report, dirs: &Dirs) {
     let dir = dirs.backups();
     if !dir.is_dir() {
         return;
@@ -163,7 +232,7 @@ fn check_backups(checks: &mut Checks, dirs: &Dirs) {
     }
 }
 
-fn check_schedule(checks: &mut Checks) {
+fn check_schedule(checks: &mut Report) {
     let exe = match crate::paths::current_exe() {
         Ok(exe) => exe,
         Err(e) => return checks.problem(&format!("{e:#}")),
@@ -176,7 +245,7 @@ fn check_schedule(checks: &mut Checks) {
     }
 }
 
-fn check_remote(checks: &mut Checks, what: &str, url: &str, git_ref: &str) -> Option<String> {
+fn check_remote(checks: &mut Report, what: &str, url: &str, git_ref: &str) -> Option<String> {
     match git::resolve(url, git_ref) {
         Ok(sha) => {
             checks.ok(&format!("{what}: {url} ({git_ref} = {sha})"));
@@ -191,7 +260,7 @@ fn check_remote(checks: &mut Checks, what: &str, url: &str, git_ref: &str) -> Op
     }
 }
 
-fn check_config_repo(checks: &mut Checks, machine: &Machine) -> Option<Manifest> {
+fn check_config_repo(checks: &mut Report, machine: &Machine) -> Option<Manifest> {
     let sha = check_remote(checks, "repo de config", &machine.repo, &machine.git_ref)?;
     let snapshot = match Snapshot::fetch(&machine.repo, &machine.git_ref, &sha) {
         Ok(snapshot) => snapshot,
@@ -218,7 +287,7 @@ fn check_config_repo(checks: &mut Checks, machine: &Machine) -> Option<Manifest>
 }
 
 fn check_items(
-    checks: &mut Checks,
+    checks: &mut Report,
     manifest: &Manifest,
     active: &[String],
     dirs: &Dirs,
@@ -270,6 +339,27 @@ fn check_items(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn report_serializes_to_json() {
+        let mut report = Report::default();
+        report.ok("agente codex detectado");
+        report.warn("agendamento ausente");
+        report.problem("mcp x: segredo Y ausente");
+        report.complete = true;
+        assert_eq!(report.problems(), 1);
+        let json = serde_json::to_value(&report).unwrap();
+        let expected = serde_json::json!({
+            "checks": [
+                {"level": "ok", "text": "agente codex detectado"},
+                {"level": "warn", "text": "agendamento ausente"},
+                {"level": "problem", "text": "mcp x: segredo Y ausente"},
+            ],
+            "complete": true,
+            "error": null,
+        });
+        assert_eq!(json, expected);
+    }
 
     #[test]
     fn hints_for_tls_and_auth() {
