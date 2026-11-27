@@ -5,9 +5,11 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::paths::Dirs;
 use crate::plan::Action;
 use crate::report::Report;
 use crate::resolved::Watched;
+use crate::update::Version;
 
 /// News found by `check` for one config commit.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -193,6 +195,30 @@ impl Pending {
 
     fn short(&self) -> &str {
         self.commit.get(..7).unwrap_or(&self.commit)
+    }
+}
+
+/// What the last `check` left for the user: its news and a newer agsync release. Read
+/// from `pending.json` and `update.json` only, never from the network.
+#[derive(Debug, Serialize)]
+pub struct Notices {
+    pub pending: Option<Pending>,
+    pub newer: Option<Version>,
+}
+
+impl Notices {
+    pub fn load(dirs: &Dirs) -> Notices {
+        Notices {
+            pending: Pending::load(&dirs.pending_file()),
+            newer: crate::update::recorded(dirs),
+        }
+    }
+
+    /// The lines `agsync hook` prints, pending first.
+    pub fn lines(&self) -> Vec<String> {
+        let pending = self.pending.as_ref().map(Pending::line);
+        let newer = self.newer.map(crate::update::line);
+        pending.into_iter().chain(newer).collect()
     }
 }
 
