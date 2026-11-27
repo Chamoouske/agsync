@@ -1,9 +1,10 @@
 //! agsync command line.
 
-use agsync_core::prompt::from_flag;
 use clap::{Parser, Subcommand};
+use prompt::{Terminal, from_flag};
 
 mod cmd;
+mod prompt;
 
 /// Sync MCP servers and skills from a git config repo into coding agents.
 #[derive(Parser)]
@@ -152,7 +153,15 @@ fn main() {
             profiles,
             yes,
             silent_update,
-        } => agsync_core::init::init(url, git_ref, profiles, yes, silent_update),
+        } => agsync_core::init::init(
+            &Terminal,
+            prompt::ask,
+            url,
+            git_ref,
+            profiles,
+            yes,
+            silent_update,
+        ),
         Cmd::Status => agsync_core::report::status().map(|()| true),
         Cmd::Diff => agsync_core::report::diff().map(|()| true),
         Cmd::Apply { yes, adopt } => {

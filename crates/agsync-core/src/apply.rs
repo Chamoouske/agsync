@@ -8,7 +8,7 @@ use crate::lock::Lock;
 use crate::paths::Dirs;
 use crate::pending::Pending;
 use crate::plan::{Action, Change};
-use crate::prompt::{Confirm, Terminal};
+use crate::prompt::Confirm;
 use crate::report::{AgentPlan, DiffView, Report};
 use crate::state::State;
 use crate::watch::Watch;
@@ -30,10 +30,10 @@ pub fn apply(confirm: &dyn Confirm, adopt: bool) -> anyhow::Result<()> {
 
 /// `agsync init`'s last step: [`apply`] that does not ask when `silent` is set or
 /// agsync.yaml has `silentUpdate: true`, unless a build comes from an import. Returns
-/// false when it would have to ask without a terminal; nothing is written then.
-pub fn init_apply(yes: bool, silent: bool) -> anyhow::Result<bool> {
+/// false when it would have to ask and `asker` cannot answer; nothing is written then.
+pub fn init_apply(asker: &dyn Confirm, yes: bool, silent: bool) -> anyhow::Result<bool> {
     let _lock = Lock::wait(&Dirs::from_env()?)?;
-    let no_tty = !Terminal.can_answer();
+    let no_tty = !asker.can_answer();
     let skip_without_asking = !yes && !silent && no_tty;
     let report = match Report::build(false) {
         Err(_) if skip_without_asking => return Ok(false),
@@ -52,7 +52,7 @@ pub fn init_apply(yes: bool, silent: bool) -> anyhow::Result<bool> {
         report.snapshot.close()?;
         return Ok(false);
     }
-    let confirm = crate::prompt::from_flag(skip_prompt);
+    let confirm = crate::prompt::yes_or(skip_prompt, asker);
     write(report, confirm, "agsync apply", settle_check)?;
     Ok(true)
 }
