@@ -16,6 +16,11 @@ use crate::secret::{self, Secrets};
 use crate::source::BuildJob;
 use crate::state::{AgentState, State, keys};
 
+mod print;
+pub mod view;
+
+pub use view::{DiffView, StatusView};
+
 /// Plan for one agent that has an adapter on this machine.
 pub struct AgentPlan {
     pub agent: &'static str,
@@ -75,22 +80,6 @@ impl AgentPlan {
         mcps.chain(skills)
             .chain(plugins)
             .filter(|(_, c)| c.action != Action::Keep)
-    }
-
-    fn detail(&self, kind: &str, change: &Change) -> String {
-        let spec = self.desired.mcps.get(&change.name);
-        match (kind, spec) {
-            ("mcp", Some(want)) if change.action != Action::Conflict => {
-                format!(" [{}]", want.shown.describe())
-            }
-            ("plugin", _) if change.action != Action::Conflict => {
-                match self.desired.plugins.get(&change.name) {
-                    Some(plugin) => format!(" [{}]", plugin.describe()),
-                    None => String::new(),
-                }
-            }
-            _ => String::new(),
-        }
     }
 }
 
@@ -249,133 +238,38 @@ impl Report {
             .any(|job| self.origins.contains_key(&("mcp", job.name.clone())))
     }
 
-    /// Prints every build apply would run: third-party code on this machine.
-    pub fn print_builds(&self) {
-        if self.builds.is_empty() {
-            return;
-        }
-        println!();
-        println!("!!! BUILDS: estes comandos executam codigo de terceiros nesta maquina !!!");
-        for job in &self.builds {
-            let origin = origin_note(&self.origins, "mcp", &job.name);
-            println!(
-                "  mcp {}: {} @ {} ({}){origin}",
-                job.name, job.repo, job.sha, job.git_ref
-            );
-            if job.commands.is_empty() {
-                println!("    (so checkout, nenhum comando)");
-            }
-            for command in &job.commands {
-                println!("    $ {command}");
-            }
-        }
-        println!();
+    /// Prints the plan apply shows before asking: like `status`, without the header.
+    pub fn print_plan(&self) {
+        DiffView::of(self).print_plan(Some(&self.skipped));
     }
+}
 
-    /// Prints changes per agent; env and header values are never shown.
-    pub fn print_changes(&self) {
-        for plan in &self.agents {
-            println!("{}:", plan.agent);
-            let mut any = false;
-            for (kind, change) in plan.visible() {
-                any = true;
-                let detail = plan.detail(kind, change);
-                let origin = origin_note(&self.origins, kind, &change.name);
-                println!(
-                    "  {kind} {}: {}{detail}{origin}",
-                    change.name,
-                    change.action.label()
-                );
-            }
-            if !any {
-                println!("  nada a mudar");
-            }
-        }
-    }
+/// Data of `agsync status`, nothing printed.
+pub fn status_view() -> anyhow::Result<StatusView> {
+    let report = Report::build(false)?;
+    let view = StatusView::of(&report);
+    report.snapshot.close()?;
+    Ok(view)
+}
 
-    /// Lists manual installs that match a declared item by name, kind and agent: the
-    /// ones apply replaces (`--adopt`) or the ones it leaves alone.
-    pub fn print_manual(&self) {
-        let pick = |action: Action| -> Vec<String> {
-            self.agents
-                .iter()
-                .flat_map(|plan| {
-                    plan.visible()
-                        .filter(move |(_, c)| c.action == action)
-                        .map(move |(kind, c)| {
-                            let detail = plan.detail(kind, c);
-                            format!("  {}: {kind} {}{detail}", plan.agent, c.name)
-                        })
-                })
-                .collect()
-        };
-        let replaced = pick(Action::Adopt);
-        if !replaced.is_empty() {
-            println!();
-            println!(
-                "!!! INSTALACOES MANUAIS que serao substituidas pela definicao do agsync.yaml:"
-            );
-            replaced.iter().for_each(|line| println!("{line}"));
-        }
-        let kept = pick(Action::Conflict);
-        if !kept.is_empty() {
-            println!();
-            println!(
-                "instalacoes manuais com o mesmo nome no agsync.yaml (`agsync apply --adopt` substitui):"
-            );
-            kept.iter().for_each(|line| println!("{line}"));
-        }
-    }
-
-    pub fn print_warnings(&self) {
-        for line in &self.warnings {
-            println!("aviso: {line}");
-        }
-    }
-
-    pub fn print_skipped(&self) {
-        if self.skipped.is_empty() {
-            return;
-        }
-        println!("pulados:");
-        for line in &self.skipped {
-            println!("  {line}");
-        }
-    }
+/// Data of `agsync diff`, nothing printed.
+pub fn diff_view() -> anyhow::Result<DiffView> {
+    let report = Report::build(false)?;
+    let view = DiffView::of(&report);
+    report.snapshot.close()?;
+    Ok(view)
 }
 
 /// `agsync status`.
 pub fn status() -> anyhow::Result<()> {
-    let report = Report::build(false)?;
-    let applied = report.state.commit.as_deref().unwrap_or("nenhum");
-    println!("repo: {} ({})", report.machine.repo, report.machine.git_ref);
-    println!("perfis ativos: {}", report.machine.profiles.join(", "));
-    println!("commit aplicado: {applied}");
-    println!("commit remoto:   {}", report.remote);
-    report.print_changes();
-    report.print_manual();
-    report.print_builds();
-    report.print_skipped();
-    report.print_warnings();
-    report.snapshot.close()
+    status_view()?.print();
+    Ok(())
 }
 
 /// `agsync diff`.
 pub fn diff() -> anyhow::Result<()> {
-    let report = Report::build(false)?;
-    report.print_changes();
-    report.print_manual();
-    report.print_builds();
-    report.print_warnings();
-    report.snapshot.close()
-}
-
-/// ` (de imports.<kind> <git>@<ref>)` for an imported item, empty for the main repo's.
-fn origin_note(origins: &Origins, kind: &'static str, name: &str) -> String {
-    origins
-        .get(&(kind, name.to_string()))
-        .map(|origin| format!(" (de {origin})"))
-        .unwrap_or_default()
+    diff_view()?.print();
+    Ok(())
 }
 
 /// Where a detected agent writes skills and where it loads them from.
@@ -659,12 +553,13 @@ skills:
         let mut origins = Origins::new();
         let from = "imports.mcps https://x/team.git@main".to_string();
         origins.insert(("mcp", "team".to_string()), from);
+        let note = |kind, name| print::origin_note(view::origin(&origins, kind, name).as_deref());
         assert_eq!(
-            origin_note(&origins, "mcp", "team"),
+            note("mcp", "team"),
             " (de imports.mcps https://x/team.git@main)"
         );
-        assert_eq!(origin_note(&origins, "skill", "team"), "");
-        assert_eq!(origin_note(&origins, "mcp", "local"), "");
+        assert_eq!(note("skill", "team"), "");
+        assert_eq!(note("mcp", "local"), "");
     }
 
     #[test]
