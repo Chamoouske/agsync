@@ -1,21 +1,24 @@
-//! `agsync::rollback` answered no, run in this process against a fake `codex`: nothing
-//! is written. Alone in its binary, since it points this process's environment at the
-//! temp dirs.
+//! `agsync::rollback` run in this process against a fake `codex`: a no or no answer
+//! writes nothing, and a yes deletes `watch.json` even when the run fails after it.
+//! Alone in its binary, since it points this process's environment at the temp dirs.
 
 mod common;
 
 use agsync::prompt::Confirm;
 use common::{Env, Untouched, fake_bin, git, path_with};
 
-struct No;
+struct Answer {
+    can: bool,
+    yes: bool,
+}
 
-impl Confirm for No {
+impl Confirm for Answer {
     fn can_answer(&self) -> bool {
-        true
+        self.can
     }
 
     fn ask(&self, _question: &str) -> anyhow::Result<bool> {
-        Ok(false)
+        Ok(self.yes)
     }
 }
 
@@ -43,7 +46,7 @@ fn enter(env: &Env) {
 }
 
 #[test]
-fn rollback_answered_no_changes_nothing() {
+fn rollback_changes_nothing_until_yes_and_forgets_watch_after_it() {
     let mut env = Env::new();
     let bin = fake_bin(&env, &["codex"]);
     env.path = Some(path_with(&["git", "sh"], &[bin]));
@@ -64,11 +67,34 @@ fn rollback_answered_no_changes_nothing() {
     let before = Untouched::snapshot(&files);
 
     enter(&env);
+    let no = Answer {
+        can: true,
+        yes: false,
+    };
     let planned = agsync::rollback::target().unwrap().plan().unwrap();
     let mut events = Vec::new();
-    let applied = agsync::rollback::run(planned, &No, &mut |e| events.push(e.clone())).unwrap();
-
+    let applied = agsync::rollback::run(planned, &no, &mut |e| events.push(e.clone())).unwrap();
     assert!(applied.pending && !applied.confirmed);
     assert!(applied.events.is_empty() && events.is_empty());
     before.assert_same();
+
+    let nobody = Answer {
+        can: false,
+        yes: true,
+    };
+    let planned = agsync::rollback::target().unwrap().plan().unwrap();
+    let err = agsync::rollback::run(planned, &nobody, &mut |_| {}).unwrap_err();
+    assert!(err.to_string().contains("agsync rollback --yes"), "{err:#}");
+    before.assert_same();
+
+    let yes = Answer {
+        can: true,
+        yes: true,
+    };
+    let planned = agsync::rollback::target().unwrap().plan().unwrap();
+    let state = env.data.join("state.json");
+    std::fs::remove_file(&state).unwrap();
+    std::fs::create_dir(&state).unwrap();
+    assert!(agsync::rollback::run(planned, &yes, &mut |_| {}).is_err());
+    assert!(!files[2].exists(), "watch.json kept after a yes");
 }

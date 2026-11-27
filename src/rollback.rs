@@ -66,19 +66,44 @@ impl Target {
     }
 }
 
-/// Asks and applies the planned commit, like [`crate::apply::run`]. On yes `watch.json`
-/// is deleted too; on no nothing changes.
+/// Asks and applies the planned commit, like [`crate::apply::run`]. `watch.json` is
+/// deleted right after a yes, before anything is written, so a run that fails later
+/// still leaves it gone; on no nothing changes.
 pub fn run(
     planned: Planned,
     confirm: &dyn Confirm,
     on: &mut dyn FnMut(&Event),
 ) -> anyhow::Result<Applied> {
     let dirs = planned.report.dirs.clone();
-    let applied = crate::apply::run(planned.report, confirm, "agsync rollback", |_| Ok(()), on)?;
+    let forget = ForgetOnYes {
+        confirm,
+        dirs: &dirs,
+    };
+    let applied = crate::apply::run(planned.report, &forget, "agsync rollback", |_| Ok(()), on)?;
     if applied.confirmed {
         forget_watch(&dirs)?;
     }
     Ok(applied)
+}
+
+/// [`Confirm`] that deletes `watch.json` as soon as the answer is yes.
+struct ForgetOnYes<'a> {
+    confirm: &'a dyn Confirm,
+    dirs: &'a Dirs,
+}
+
+impl Confirm for ForgetOnYes<'_> {
+    fn can_answer(&self) -> bool {
+        self.confirm.can_answer()
+    }
+
+    fn ask(&self, question: &str) -> anyhow::Result<bool> {
+        let yes = self.confirm.ask(question)?;
+        if yes {
+            forget_watch(self.dirs)?;
+        }
+        Ok(yes)
+    }
 }
 
 /// Without `watch.json` the next check plans again and reports the remote as pending.
