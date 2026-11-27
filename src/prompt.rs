@@ -60,14 +60,20 @@ fn yes_no(question: &str, input: &mut impl BufRead, out: &mut impl Write) -> any
 /// Asks `confirm`; when it cannot answer, an error naming `command --yes`; prints
 /// "cancelado" on no.
 pub fn confirm(confirm: &dyn Confirm, question: &str, command: &str) -> anyhow::Result<bool> {
-    if !confirm.can_answer() {
-        anyhow::bail!("sem TTY: nada feito; rode `{command} --yes`");
-    }
-    let ok = confirm.ask(question)?;
+    let ok = answer(confirm, question, command)?;
     if !ok {
         println!("cancelado");
     }
     Ok(ok)
+}
+
+/// Asks `confirm`, printing nothing; when it cannot answer, an error naming
+/// `command --yes`.
+pub fn answer(confirm: &dyn Confirm, question: &str, command: &str) -> anyhow::Result<bool> {
+    if !confirm.can_answer() {
+        anyhow::bail!("sem TTY: nada feito; rode `{command} --yes`");
+    }
+    confirm.ask(question)
 }
 
 /// Prints `question: ` and reads lines until one is not blank; errors when stdin ends.

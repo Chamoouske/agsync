@@ -9,9 +9,14 @@ use crate::paths::Dirs;
 use crate::pending::Pending;
 use crate::plan::{Action, Change};
 use crate::prompt::{Confirm, Terminal};
-use crate::report::{AgentPlan, Report};
+use crate::report::{AgentPlan, DiffView, Report};
 use crate::state::State;
 use crate::watch::Watch;
+
+mod outcome;
+mod print;
+
+pub use outcome::{Applied, Event};
 
 /// What a clean write does last: `apply` settles the check, `rollback` does not.
 pub type AfterClean = fn(&Report) -> anyhow::Result<()>;
@@ -93,51 +98,72 @@ pub fn write(
     after_clean: AfterClean,
 ) -> anyhow::Result<bool> {
     report.print_plan();
-    let mut state = report.state.clone();
-    let pending = report.has_pending();
+    let applied = run(report, confirm, command, after_clean, &mut |event| {
+        event.print()
+    })?;
+    applied.finish()?;
+    Ok(applied.confirmed)
+}
 
+/// [`write`] without printing: asks when something is pending, then builds, writes each
+/// agent, updates state and deletes the snapshot. Nothing is built or written on a no.
+/// Each step goes to `on` as it happens. The caller holds the lock.
+pub fn run(
+    report: Report,
+    confirm: &dyn Confirm,
+    command: &str,
+    after_clean: AfterClean,
+    on: &mut dyn FnMut(&Event),
+) -> anyhow::Result<Applied> {
+    let pending = report.has_pending();
+    let mut applied = Applied {
+        plan: DiffView::of(&report),
+        skipped: report.skipped.clone(),
+        imported_build: report.has_imported_build(),
+        pending,
+        confirmed: true,
+        events: Vec::new(),
+        failures: 0,
+        mcp_written: false,
+        hints: Vec::new(),
+    };
     let question = "Aplicar estas mudancas?";
-    if pending && !crate::prompt::confirm(confirm, question, command)? {
+    if pending && !crate::prompt::answer(confirm, question, command)? {
         report.snapshot.close()?;
-        return Ok(false);
+        applied.confirmed = false;
+        return Ok(applied);
     }
     if pending {
         crate::secret::file::private_dir(&report.dirs.backups())?;
     }
 
-    let failed_builds = run_builds(&report);
-    let mut failures = failed_builds.len();
-    let mut mcp_written = false;
-    let mut hints = Vec::new();
+    let mut events = Vec::new();
+    let mut emit = |event: Event| {
+        on(&event);
+        events.push(event);
+    };
+    let mut state = report.state.clone();
+    let failed_builds = run_builds(&report, &mut emit);
+    applied.failures = failed_builds.len();
     for plan in &report.agents {
-        let outcome = apply_agent(plan, &report.dirs, &mut state, &failed_builds);
-        failures += outcome.failures;
-        mcp_written |= outcome.mcp_written;
+        let outcome = apply_agent(plan, &report.dirs, &mut state, &failed_builds, &mut emit);
+        applied.failures += outcome.failures;
+        applied.mcp_written |= outcome.mcp_written;
         if outcome.wrote {
-            hints.extend(plan.adapter.reload_hint());
+            applied
+                .hints
+                .extend(plan.adapter.reload_hint().map(String::from));
         }
     }
     state.applied(&report.snapshot.commit);
     state.save(&report.dirs.state_file())?;
-    if failures == 0 {
-        clean_caches(&report.dirs, &state);
+    if applied.failures == 0 {
+        clean_caches(&report.dirs, &state, &mut emit);
         after_clean(&report)?;
     }
     report.snapshot.close()?;
-
-    if !pending {
-        println!("nada a aplicar");
-    }
-    if mcp_written {
-        println!("Mudancas de MCP so valem apos reiniciar o agente.");
-    }
-    for hint in hints {
-        println!("{hint}");
-    }
-    if failures > 0 {
-        anyhow::bail!("{failures} item(ns) falharam; os demais foram aplicados");
-    }
-    Ok(true)
+    applied.events = events;
+    Ok(applied)
 }
 
 /// After a clean apply nothing is pending, and `check` may stop early at this commit.
@@ -151,31 +177,37 @@ fn settle_check(report: &Report) -> anyhow::Result<()> {
 }
 
 /// Deletes source checkouts and cached skills that no state entry uses.
-fn clean_caches(dirs: &Dirs, state: &State) {
+fn clean_caches(dirs: &Dirs, state: &State, emit: &mut dyn FnMut(Event)) {
     let sources = cleanup::clean(&dirs.sources(), &cleanup::used_sources(state));
     let skills = cleanup::clean(&dirs.skill_cache(), &cleanup::used_skill_cache(state));
     match (sources, skills) {
-        (Ok(a), Ok(b)) if a.len() + b.len() > 0 => {
-            println!(
-                "limpeza: {} pasta(s) sem uso removida(s)",
-                a.len() + b.len()
-            );
-        }
-        (Err(e), _) | (_, Err(e)) => eprintln!("aviso: limpeza do cache falhou: {e:#}"),
+        (Ok(a), Ok(b)) if a.len() + b.len() > 0 => emit(Event::Cleaned {
+            count: a.len() + b.len(),
+        }),
+        (Err(e), _) | (_, Err(e)) => emit(Event::CleanupFailed {
+            error: format!("{e:#}"),
+        }),
         _ => {}
     }
 }
 
 /// Runs each build; returns the names of the MCPs whose build failed (they are skipped).
-fn run_builds(report: &Report) -> BTreeSet<String> {
+fn run_builds(report: &Report, emit: &mut dyn FnMut(Event)) -> BTreeSet<String> {
     let mut failed = BTreeSet::new();
     for job in &report.builds {
-        println!("build mcp {} ({})...", job.name, job.sha);
+        let name = job.name.clone();
+        emit(Event::BuildStarted {
+            name: name.clone(),
+            sha: job.sha.clone(),
+        });
         match job.run(&report.dirs.logs()) {
-            Ok(()) => println!("build mcp {}: ok", job.name),
+            Ok(()) => emit(Event::BuildDone { name }),
             Err(e) => {
-                eprintln!("mcp {}: {e:#}; item pulado", job.name);
-                failed.insert(job.name.clone());
+                failed.insert(name.clone());
+                emit(Event::BuildFailed {
+                    name,
+                    error: format!("{e:#}"),
+                });
             }
         }
     }
@@ -195,6 +227,7 @@ fn apply_agent(
     dirs: &Dirs,
     state: &mut State,
     failed_builds: &BTreeSet<String>,
+    emit: &mut dyn FnMut(Event),
 ) -> Outcome {
     let mut outcome = Outcome::default();
     let mcps: Vec<&Change> = plan
@@ -209,48 +242,56 @@ fn apply_agent(
         .chain(&plan.plugins)
         .any(|c| c.action.writes());
     if writes && let Err(e) = plan.adapter.backup(&dirs.backups()) {
-        eprintln!("{}: backup falhou, agente pulado: {e:#}", plan.agent);
+        emit(Event::BackupFailed {
+            agent: plan.agent,
+            error: format!("{e:#}"),
+        });
         outcome.failures += 1;
         return outcome;
     }
     for change in mcps {
-        match apply_mcp(plan, change, state) {
+        match apply_mcp(plan, change, state, emit) {
             Ok(()) => {
                 outcome.mcp_written |= change.action.writes();
                 outcome.wrote |= change.action.writes();
             }
             Err(e) => {
-                eprintln!("{}: mcp {} falhou: {e:#}", plan.agent, change.name);
+                emit(failed(plan, "mcp", change, &e));
                 outcome.failures += 1;
             }
         }
-        save(state, dirs);
+        save(state, dirs, emit);
     }
     for change in &plan.skills {
-        match apply_skill(plan, change, dirs, state) {
+        match apply_skill(plan, change, dirs, state, emit) {
             Ok(()) => outcome.wrote |= change.action.writes(),
             Err(e) => {
-                eprintln!("{}: skill {} falhou: {e:#}", plan.agent, change.name);
+                emit(failed(plan, "skill", change, &e));
                 outcome.failures += 1;
             }
         }
-        save(state, dirs);
+        save(state, dirs, emit);
     }
     for change in &plan.plugins {
         let managed = managed_plugins(plan, state);
-        match apply_plugin(plan, change, state, &managed) {
+        match apply_plugin(plan, change, state, &managed, emit) {
             Ok(()) => outcome.wrote |= change.action.writes(),
             Err(e) => {
-                eprintln!("{}: plugin {} falhou: {e:#}", plan.agent, change.name);
+                emit(failed(plan, "plugin", change, &e));
                 outcome.failures += 1;
             }
         }
-        save(state, dirs);
+        save(state, dirs, emit);
     }
     outcome
 }
 
-fn apply_mcp(plan: &AgentPlan, change: &Change, state: &mut State) -> anyhow::Result<()> {
+fn apply_mcp(
+    plan: &AgentPlan,
+    change: &Change,
+    state: &mut State,
+    emit: &mut dyn FnMut(Event),
+) -> anyhow::Result<()> {
     let name = &change.name;
     let desired = plan.desired.mcps.get(name);
     let entries = state.agent_mut(plan.agent);
@@ -258,12 +299,12 @@ fn apply_mcp(plan: &AgentPlan, change: &Change, state: &mut State) -> anyhow::Re
         (Action::Add | Action::Update | Action::Overwrite | Action::Adopt, Some(want)) => {
             plan.adapter.write_mcp(name, &want.write)?;
             entries.mcps.insert(name.clone(), want.tracked());
-            report(plan, change, "mcp");
+            emit(written(plan, "mcp", change));
         }
         (Action::Remove, _) => {
             plan.adapter.remove_mcp(name)?;
             entries.mcps.remove(name);
-            report(plan, change, "mcp");
+            emit(written(plan, "mcp", change));
         }
         (Action::Forget, _) => {
             entries.mcps.remove(name);
@@ -281,6 +322,7 @@ fn apply_skill(
     change: &Change,
     dirs: &Dirs,
     state: &mut State,
+    emit: &mut dyn FnMut(Event),
 ) -> anyhow::Result<()> {
     let name = &change.name;
     let backups = dirs.backups();
@@ -292,12 +334,12 @@ fn apply_skill(
                 link::ensure_cache(&src.dir, &dirs.skill_cache(), name, &src.hash, &backups)?;
             let mode = plan.adapter.write_skill(name, &cached, &backups)?;
             entries.skills.insert(name.clone(), src.tracked(Some(mode)));
-            report(plan, change, "skill");
+            emit(written(plan, "skill", change));
         }
         (Action::Remove, _) => {
             plan.adapter.remove_skill(name, &backups)?;
             entries.skills.remove(name);
-            report(plan, change, "skill");
+            emit(written(plan, "skill", change));
         }
         (Action::Forget, _) => {
             entries.skills.remove(name);
@@ -327,6 +369,7 @@ fn apply_plugin(
     change: &Change,
     state: &mut State,
     managed: &BTreeSet<String>,
+    emit: &mut dyn FnMut(Event),
 ) -> anyhow::Result<()> {
     let name = &change.name;
     let desired = plan.desired.plugins.get(name);
@@ -342,14 +385,14 @@ fn apply_plugin(
                 plan.adapter.uninstall_plugin(&old)?;
             }
             entries.plugins.insert(name.clone(), spec.tracked(id));
-            report(plan, change, "plugin");
+            emit(written(plan, "plugin", change));
         }
         (Action::Remove, _) => {
             if let Some(id) = entries.plugins.get(name).and_then(|t| t.plugin.clone()) {
                 plan.adapter.uninstall_plugin(&id)?;
             }
             entries.plugins.remove(name);
-            report(plan, change, "plugin");
+            emit(written(plan, "plugin", change));
         }
         (Action::Forget, _) => {
             entries.plugins.remove(name);
@@ -372,18 +415,29 @@ fn apply_plugin(
     Ok(())
 }
 
-fn report(plan: &AgentPlan, change: &Change, kind: &str) {
-    println!(
-        "{}: {kind} {}: ok ({})",
-        plan.agent,
-        change.name,
-        change.action.label()
-    );
+fn written(plan: &AgentPlan, kind: &'static str, change: &Change) -> Event {
+    Event::Written {
+        agent: plan.agent,
+        kind,
+        name: change.name.clone(),
+        action: change.action,
+    }
 }
 
-fn save(state: &State, dirs: &Dirs) {
+fn failed(plan: &AgentPlan, kind: &'static str, change: &Change, e: &anyhow::Error) -> Event {
+    Event::ItemFailed {
+        agent: plan.agent,
+        kind,
+        name: change.name.clone(),
+        error: format!("{e:#}"),
+    }
+}
+
+fn save(state: &State, dirs: &Dirs, emit: &mut dyn FnMut(Event)) {
     if let Err(e) = state.save(&dirs.state_file()) {
-        eprintln!("gravar state.json falhou: {e:#}");
+        emit(Event::StateSaveFailed {
+            error: format!("{e:#}"),
+        });
     }
 }
 
