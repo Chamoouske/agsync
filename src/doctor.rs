@@ -380,7 +380,9 @@ mod tests {
     #[test]
     fn ssh_failure_shows_the_agent_hint_once() {
         let text = "git ls-remote falhou: git@host: Permission denied (publickey).";
-        assert!(git::ssh_hint(text).unwrap().contains("ssh-add"));
+        let ssh = git::ssh_hint(text).unwrap();
+        assert!(ssh.contains("ssh-add"));
+        assert!(ssh.contains("cadastrada no servidor"));
         assert!(hint(text).is_none());
     }
 }

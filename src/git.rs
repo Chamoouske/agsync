@@ -226,8 +226,9 @@ pub fn ssh_hint(error: &str) -> Option<&'static str> {
     let text = error.to_lowercase();
     if text.contains("permission denied (publickey") {
         return Some(
-            "o agsync roda o ssh sem prompt (BatchMode=yes): carregue a chave no ssh-agent \
-             (`ssh-add <chave>`) ou use uma chave sem passphrase; teste com `ssh -o BatchMode=yes -T <host>`",
+            "o agsync roda o ssh sem prompt (BatchMode=yes): se a chave tem passphrase, carregue-a \
+             no ssh-agent (`ssh-add <chave>`); se nao, confira se a chave publica esta cadastrada \
+             no servidor; teste com `ssh -o BatchMode=yes -T <host>`",
         );
     }
     if text.contains("host key verification failed") {
@@ -502,7 +503,8 @@ profiles: []
             .unwrap_err()
             .to_string();
         assert!(error.contains("Permission denied (publickey)"), "{error}");
-        assert!(error.contains("ssh-add"), "{error}");
+        assert_eq!(error.matches("ssh-add").count(), 1, "{error}");
+        assert!(error.contains("cadastrada no servidor"), "{error}");
         assert!(!dir.join("prompted").exists());
     }
 
