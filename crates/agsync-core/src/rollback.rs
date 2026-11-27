@@ -8,10 +8,6 @@ use crate::paths::Dirs;
 use crate::prompt::Confirm;
 use crate::report::{Inputs, Report, read_manifest};
 
-mod cli;
-
-pub use cli::rollback;
-
 /// The commit a rollback goes back to, found under the lock and not planned yet.
 pub struct Target {
     lock: Lock,

@@ -1,7 +1,7 @@
 //! `agsync init`: machine.toml, repo access, schedule, shell hook, first apply.
 //!
 //! Each step takes its options and returns what happened without reading stdin or
-//! printing; [`run`] chains them and [`init`] prints them for the CLI. Each step
+//! printing; [`run`] chains them and the CLI prints them. Each step
 //! reports its own failure; later steps still run when they make sense.
 
 use std::path::PathBuf;
@@ -14,10 +14,6 @@ use crate::paths::Dirs;
 use crate::prompt::Confirm;
 use crate::schedule::Scheduled;
 use crate::shell::Hooked;
-
-mod cli;
-
-pub use cli::init;
 
 /// The answers `init` needs, all given up front.
 #[derive(Debug, Clone)]
