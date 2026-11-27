@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use anyhow::Context;
+use serde::Serialize;
 
 use super::{parse, parse_line, valid_name};
 
@@ -22,14 +23,33 @@ pub fn set(path: &Path, name: &str, value: &str) -> anyhow::Result<()> {
     write_private(path, with_value(&old, name, value).as_bytes())
 }
 
-/// Names defined in the file, sorted.
-pub fn names(path: &Path) -> anyhow::Result<Vec<String>> {
+/// One name in `secrets.env`; the value never leaves the file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SecretEntry {
+    pub name: String,
+    /// False when the line is `NAME=` with nothing after it.
+    pub defined: bool,
+}
+
+/// Names in the file, sorted, and whether each has a value.
+pub fn list(path: &Path) -> anyhow::Result<Vec<SecretEntry>> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(e).with_context(|| format!("ler {}", path.display())),
     };
-    Ok(parse(&text).into_keys().collect())
+    Ok(parse(&text)
+        .into_iter()
+        .map(|(name, value)| SecretEntry {
+            name,
+            defined: !value.is_empty(),
+        })
+        .collect())
+}
+
+/// Names defined in the file, sorted.
+pub fn names(path: &Path) -> anyhow::Result<Vec<String>> {
+    Ok(list(path)?.into_iter().map(|entry| entry.name).collect())
 }
 
 /// `text` with the first `name=` line replaced (later ones dropped), or the line appended.
@@ -165,6 +185,25 @@ mod tests {
         assert!(set(&file, "A", "x\ny").is_err());
         let leftovers = std::fs::read_dir(file.parent().unwrap()).unwrap().count();
         assert_eq!(leftovers, 1);
+    }
+
+    #[test]
+    fn list_has_names_and_flags_without_values() {
+        let dir = TempDir::new("agsync-test").unwrap();
+        let file = dir.path().join("secrets.env");
+        std::fs::write(&file, "B=secret-b\nEMPTY=\n# A=no\nA=secret-a\n").unwrap();
+        let entries = list(&file).unwrap();
+        let entry = |name: &str, defined| SecretEntry {
+            name: name.into(),
+            defined,
+        };
+        assert_eq!(
+            entries,
+            [entry("A", true), entry("B", true), entry("EMPTY", false)]
+        );
+        let json = serde_json::to_string(&entries).unwrap();
+        assert!(!json.contains("secret-"), "{json}");
+        assert!(list(&dir.path().join("missing.env")).unwrap().is_empty());
     }
 
     #[test]
