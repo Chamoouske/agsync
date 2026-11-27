@@ -31,7 +31,16 @@ fn ssh_key_outside_agent_fails_fast_with_hint() {
             "check" => env.check_log(),
             _ => out,
         };
-        assert!(text.contains("ssh-add"), "agsync {args:?}:\n{text}");
+        assert_eq!(
+            text.matches("ssh-add").count(),
+            1,
+            "agsync {args:?}:\n{text}"
+        );
+        assert_eq!(
+            text.matches("cadastrada no servidor").count(),
+            1,
+            "agsync {args:?}:\n{text}"
+        );
     }
     assert!(!mark.exists(), "ssh was run without BatchMode");
 }
