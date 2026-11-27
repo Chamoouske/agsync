@@ -54,7 +54,7 @@ fn enter(env: &Env) {
 fn status_and_diff_serialize_to_json() {
     let env = setup();
     enter(&env);
-    let status = serde_json::to_value(agsync::report::status_view().unwrap()).unwrap();
+    let status = serde_json::to_value(agsync_core::report::status_view().unwrap()).unwrap();
     let head = git(&env.remote, &["rev-parse", "HEAD"]);
     assert_eq!(status["git_ref"], "main");
     assert_eq!(status["profiles"], json!(["work"]));
@@ -73,7 +73,7 @@ fn status_and_diff_serialize_to_json() {
     let skipped = status["skipped"].as_array().unwrap();
     assert!(skipped.contains(&json!("claude: claude nao encontrado no PATH")));
 
-    let diff = serde_json::to_value(agsync::report::diff_view().unwrap()).unwrap();
+    let diff = serde_json::to_value(agsync_core::report::diff_view().unwrap()).unwrap();
     assert_eq!(diff["agents"], json!([codex]));
     assert!(diff.get("skipped").is_none(), "{diff}");
     assert!(diff.get("remote").is_none(), "{diff}");

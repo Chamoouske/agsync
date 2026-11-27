@@ -18,9 +18,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use agsync::schedule::cron::Cron;
-use agsync::schedule::systemd::Systemd;
-use agsync::schedule::{Scheduler, Status};
+use agsync_core::schedule::cron::Cron;
+use agsync_core::schedule::systemd::Systemd;
+use agsync_core::schedule::{Scheduler, Status};
 use common::{Env, text};
 
 fn unique_name(kind: &str) -> String {
@@ -137,7 +137,7 @@ fn systemd_user_timer_is_installed_runs_and_is_removed() {
     assert!(ran.starts_with("check\n"), "{ran}");
     let unit_path = ran.lines().nth(1).unwrap();
     let dirs: Vec<PathBuf> = std::env::split_paths(unit_path).collect();
-    let host = agsync::host::current();
+    let host = agsync_core::host::current();
     for dir in &dirs {
         assert!(
             !host.foreign(dir),
@@ -161,7 +161,7 @@ fn systemd_user_timer_is_installed_runs_and_is_removed() {
 
 #[test]
 fn cron_line_is_added_and_removed_next_to_other_lines() {
-    if agsync::which::find("crontab").is_none() {
+    if agsync_core::which::find("crontab").is_none() {
         eprintln!("SKIP cron: `crontab` nao esta no PATH");
         return;
     }
@@ -203,7 +203,7 @@ fn cron_line_is_added_and_removed_next_to_other_lines() {
     let probe_out = std::fs::read_to_string(env.root.path().join("ran")).unwrap();
     let mut lines = probe_out.lines();
     assert_eq!(lines.next(), Some("check"));
-    let host = agsync::host::current();
+    let host = agsync_core::host::current();
     let script_path = lines.next().unwrap();
     for dir in std::env::split_paths(script_path) {
         assert!(

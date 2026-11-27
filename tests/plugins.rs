@@ -254,7 +254,7 @@ fn plugins_switch_ref_of_remote_marketplace_with_real_claude() {
         ),
         ("GIT_CONFIG_VALUE_0".to_string(), REMOTE_MARKET.to_string()),
     ];
-    assert!(!agsync::plugin::is_local_marketplace(REMOTE_MARKET));
+    assert!(!agsync_core::plugin::is_local_marketplace(REMOTE_MARKET));
 
     git(&env.remote, &["init", "-q", "-b", "main"]);
     env.push(&remote_market_yaml("v1"));
@@ -433,7 +433,7 @@ fn opencode_yaml(git_url: &str, ref_: &str) -> String {
 
 #[test]
 fn plugins_end_to_end_with_real_opencode() {
-    if agsync::which::find("opencode").is_none() {
+    if agsync_core::which::find("opencode").is_none() {
         eprintln!("SKIP plugins_end_to_end_with_real_opencode: `opencode` nao esta no PATH");
         return;
     }

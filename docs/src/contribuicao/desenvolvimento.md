@@ -35,8 +35,8 @@ Os mesmos três passos do CI:
 
 ```sh
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --no-fail-fast
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --no-fail-fast
 ```
 
 - Testes de unidade ficam nos módulos (`#[cfg(test)]`); testes de integração, em `tests/`, com utilitários em `tests/common/`.

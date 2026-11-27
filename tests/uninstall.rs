@@ -39,7 +39,7 @@ fn setup() -> Env {
     env.ok(&["apply", "--yes"]);
     let (ok, out) = env.agsync_with_input(&["secret", "set", "UNINSTALL_T"], Some("v\n"));
     assert!(ok, "{out}");
-    let block = agsync::shell::block::with_block(BASHRC, "agsync hook");
+    let block = agsync_core::shell::block::with_block(BASHRC, "agsync hook");
     std::fs::write(env.home.join(".bashrc"), block).unwrap();
     std::fs::write(env.data.join("pending.json"), "{}").unwrap();
     env

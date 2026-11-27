@@ -1,26 +1,32 @@
-[package]
-name = "agsync"
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-description = "Sync MCP servers and skills from a git config repo into coding agents"
 license = "MIT"
 
+[workspace]
+members = ["crates/agsync-core"]
+resolver = "3"
+
+[package]
+name = "agsync"
+version.workspace = true
+edition.workspace = true
+description = "Sync MCP servers and skills from a git config repo into coding agents"
+license.workspace = true
+
 [dependencies]
+agsync-core = { path = "crates/agsync-core" }
 anyhow = "1.0.104"
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
-jsonc-parser = { version = "0.34.0", default-features = false, features = ["cst", "serde_json"] }
 rpassword = "7.5.5"
-serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+jsonc-parser = { version = "0.34.0", default-features = false, features = ["cst", "serde_json"] }
 serde-saphyr = { version = "2.1.1", default-features = false, features = ["deserialize"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
 toml = "1.2.1"
 toml_edit = "0.25.19"
-
-[target.'cfg(windows)'.dependencies]
-winreg = "0.56.0"
-windows = { version = "0.62.2", features = ["Data_Xml_Dom", "Foundation_Collections", "UI_Notifications"] }
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Wdk_System_Threading"] }
 
 [profile.release]
 lto = "thin"

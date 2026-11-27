@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{Arc, Mutex};
 
-use agsync::tmp::TempDir;
+use agsync_core::tmp::TempDir;
 use sha2::{Digest, Sha256};
 
 #[cfg(windows)]

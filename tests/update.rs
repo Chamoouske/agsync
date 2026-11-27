@@ -253,7 +253,12 @@ fn update_refuses_a_wrong_hash_and_changes_nothing() {
 fn update_without_terminal_needs_yes() {
     let mut env = setup();
     let exe = agsync_copy(&env);
-    publish(&mut env, "99.0.0", b"x", &agsync::hash::hash_bytes(b"x"));
+    publish(
+        &mut env,
+        "99.0.0",
+        b"x",
+        &agsync_core::hash::hash_bytes(b"x"),
+    );
     let (ok, out) = run(&env, &exe, &["update"]);
     assert!(!ok, "{out}");
     assert!(out.contains("rode `agsync update --yes`"), "{out}");
@@ -330,7 +335,12 @@ fn sha256sums_without_the_asset_changes_nothing() {
     let mut env = setup();
     let exe = agsync_copy(&env);
     let before = std::fs::read(&exe).unwrap();
-    publish(&mut env, "99.0.0", b"x", &agsync::hash::hash_bytes(b"x"));
+    publish(
+        &mut env,
+        "99.0.0",
+        b"x",
+        &agsync_core::hash::hash_bytes(b"x"),
+    );
     let sums = env
         .root
         .path()
@@ -353,7 +363,7 @@ fn update_swaps_in_the_checked_binary() {
     let mut env = setup();
     let exe = agsync_copy(&env);
     let new = std::fs::read(env!("CARGO_BIN_EXE_agsync")).unwrap();
-    let hash = agsync::hash::hash_bytes(&new);
+    let hash = agsync_core::hash::hash_bytes(&new);
     publish(&mut env, "99.0.0", &new, &hash.to_uppercase());
     env.ok(&["check"]);
     assert!(env.data.join("update.json").exists());
@@ -363,7 +373,7 @@ fn update_swaps_in_the_checked_binary() {
     assert!(out.contains("agsync atualizado para 99.0.0"), "{out}");
     assert!(!env.data.join("update.json").exists());
     assert_eq!(
-        agsync::hash::hash_bytes(&std::fs::read(&exe).unwrap()),
+        agsync_core::hash::hash_bytes(&std::fs::read(&exe).unwrap()),
         hash
     );
     let expected: &[&str] = if cfg!(windows) {
@@ -412,7 +422,12 @@ fn update_of_a_tag_without_binaries_says_so_and_changes_nothing() {
     let mut env = setup();
     let exe = agsync_copy(&env);
     let before = std::fs::read(&exe).unwrap();
-    publish(&mut env, "99.0.0", b"x", &agsync::hash::hash_bytes(b"x"));
+    publish(
+        &mut env,
+        "99.0.0",
+        b"x",
+        &agsync_core::hash::hash_bytes(b"x"),
+    );
     let repo = releases(&env, "newer-releases", &["v99.0.0", "v99.0.1"]);
     use_releases(&mut env, &repo);
 
@@ -428,7 +443,12 @@ fn update_to_a_binary_that_does_not_run_restores_the_old_one() {
     let mut env = setup();
     let exe = agsync_copy(&env);
     let before = std::fs::read(&exe).unwrap();
-    publish(&mut env, "99.0.0", b"x", &agsync::hash::hash_bytes(b"x"));
+    publish(
+        &mut env,
+        "99.0.0",
+        b"x",
+        &agsync_core::hash::hash_bytes(b"x"),
+    );
     env.ok(&["check"]);
 
     let (ok, out) = run(&env, &exe, &["update", "--yes"]);
