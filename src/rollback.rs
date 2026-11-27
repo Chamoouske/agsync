@@ -1,37 +1,84 @@
 //! `agsync rollback`: applies the commit applied before the current one, through the
 //! normal plan and apply. Backups are never copied back over agent configs.
 
+use crate::apply::{Applied, Event};
 use crate::git::Snapshot;
 use crate::lock::Lock;
 use crate::paths::Dirs;
+use crate::prompt::Confirm;
 use crate::report::{Inputs, Report, read_manifest};
 
-/// Plans the previous commit, shows the diff, asks and applies it.
-pub fn rollback(confirm: &dyn crate::prompt::Confirm) -> anyhow::Result<()> {
-    let _lock = Lock::wait(&Dirs::from_env()?)?;
+mod cli;
+
+pub use cli::rollback;
+
+/// The commit a rollback goes back to, found under the lock and not planned yet.
+pub struct Target {
+    lock: Lock,
+    inputs: Inputs,
+    /// Commit applied now.
+    pub from: String,
+    /// Commit applied before it, the one the rollback applies.
+    pub to: String,
+}
+
+/// [`Target`] planned: what the rollback would change, before anything is asked.
+pub struct Planned {
+    _lock: Lock,
+    pub from: String,
+    pub to: String,
+    pub report: Report,
+}
+
+/// Takes the lock and finds the previous commit; an error when there is none.
+pub fn target() -> anyhow::Result<Target> {
+    let lock = Lock::wait(&Dirs::from_env()?)?;
     let inputs = Inputs::load()?;
-    let Some(previous) = inputs.state.previous.clone() else {
+    let Some(to) = inputs.state.previous.clone() else {
         anyhow::bail!(
             "sem commit anterior em {}: o rollback precisa de dois applies de commits diferentes",
             inputs.dirs.state_file().display()
         );
     };
-    let current = inputs.state.commit.clone().unwrap_or_default();
-    println!("rollback: {current} -> {previous}");
-    let repo = inputs.machine.repo.clone();
-    let cache = inputs.dirs.snapshot_cache();
-    let snapshot = Snapshot::cached(&cache, &repo, &previous, &previous)?;
-    let manifest = read_manifest(&snapshot)?;
-    let report = Report::plan(inputs, previous.clone(), snapshot, manifest, false)?;
-    forget_watch(&report.dirs)?;
-    if !crate::apply::write(report, confirm, "agsync rollback", |_| Ok(()))? {
-        return Ok(());
+    let from = inputs.state.commit.clone().unwrap_or_default();
+    Ok(Target {
+        lock,
+        inputs,
+        from,
+        to,
+    })
+}
+
+impl Target {
+    /// Fetches the previous commit and plans it like any apply.
+    pub fn plan(self) -> anyhow::Result<Planned> {
+        let repo = self.inputs.machine.repo.clone();
+        let cache = self.inputs.dirs.snapshot_cache();
+        let snapshot = Snapshot::cached(&cache, &repo, &self.to, &self.to)?;
+        let manifest = read_manifest(&snapshot)?;
+        let report = Report::plan(self.inputs, self.to.clone(), snapshot, manifest, false)?;
+        Ok(Planned {
+            _lock: self.lock,
+            from: self.from,
+            to: self.to,
+            report,
+        })
     }
-    println!("aplicado o commit anterior {previous}");
-    println!(
-        "o `agsync check` volta a acusar o commit remoto como pendente; isso e esperado. Para voltar a ele: `agsync apply`"
-    );
-    Ok(())
+}
+
+/// Asks and applies the planned commit, like [`crate::apply::run`]. On yes `watch.json`
+/// is deleted too; on no nothing changes.
+pub fn run(
+    planned: Planned,
+    confirm: &dyn Confirm,
+    on: &mut dyn FnMut(&Event),
+) -> anyhow::Result<Applied> {
+    let dirs = planned.report.dirs.clone();
+    let applied = crate::apply::run(planned.report, confirm, "agsync rollback", |_| Ok(()), on)?;
+    if applied.confirmed {
+        forget_watch(&dirs)?;
+    }
+    Ok(applied)
 }
 
 /// Without `watch.json` the next check plans again and reports the remote as pending.
