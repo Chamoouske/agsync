@@ -29,6 +29,20 @@ cargo run -- doctor
 
 Os agentes reais da máquina ainda são detectados pelo PATH; `status` e `diff` não escrevem nada.
 
+## App desktop
+
+O app desktop fica em `crates/agsync-desktop`: Tauri v2 sobre o `agsync-core`, com um frontend Vite em `ui/`. A crate tem workspace e `Cargo.lock` próprios, fora do workspace da CLI, então `cargo build` e o CI da CLI não dependem do WebView.
+
+Requisitos além dos da CLI: Node.js com npm, o `tauri-cli` (`cargo install tauri-cli --version "^2" --locked`) e, no Linux, as [dependências de sistema do Tauri](https://v2.tauri.app/start/prerequisites/#linux) (WebKitGTK 4.1).
+
+```sh
+cd crates/agsync-desktop
+npm --prefix ui install
+cargo tauri dev
+```
+
+Os comandos IPC devolvem as structs `Serialize` do `agsync-core` (por exemplo `StatusView`); o frontend não redefine esses tipos.
+
 ## Testar
 
 Os mesmos três passos do CI:
