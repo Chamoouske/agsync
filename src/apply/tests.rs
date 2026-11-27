@@ -196,7 +196,13 @@ impl World {
     }
 
     fn apply(&mut self, plan: &AgentPlan) -> usize {
-        let outcome = apply_agent(plan, &self.dirs, &mut self.state, &BTreeSet::new());
+        let outcome = apply_agent(
+            plan,
+            &self.dirs,
+            &mut self.state,
+            &BTreeSet::new(),
+            &mut |_| {},
+        );
         outcome.failures
     }
 
@@ -364,4 +370,160 @@ fn silent_update_never_skips_confirming_an_imported_build() {
     assert!(skip && note.unwrap().contains("silentUpdate"));
     assert_eq!(init_confirm(false, false, false, true), (false, None));
     assert_eq!(init_confirm(false, false, false, false), (false, None));
+}
+
+/// Answers every question with `yes`, or cannot answer at all; counts the questions.
+struct Answer {
+    can: bool,
+    yes: bool,
+    asked: RefCell<usize>,
+}
+
+impl Confirm for Answer {
+    fn can_answer(&self) -> bool {
+        self.can
+    }
+
+    fn ask(&self, _question: &str) -> anyhow::Result<bool> {
+        *self.asked.borrow_mut() += 1;
+        Ok(self.yes)
+    }
+}
+
+fn answer(can: bool, yes: bool) -> Answer {
+    Answer {
+        can,
+        yes,
+        asked: RefCell::new(0),
+    }
+}
+
+/// Git repo with one commit under `root/name`; returns its path and commit.
+fn git_repo(root: &Path, name: &str) -> (String, String) {
+    let dir = root.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let run = |args: &[&str]| {
+        let mut all = vec!["-c", "user.name=t", "-c", "user.email=t@t"];
+        all.extend_from_slice(args);
+        crate::git::git(&all, Some(&dir)).unwrap()
+    };
+    run(&["init", "-q", "-b", "main"]);
+    std::fs::write(dir.join("agsync.yaml"), "version: 1\n").unwrap();
+    run(&["add", "."]);
+    run(&["commit", "-q", "-m", "one"]);
+    let sha = run(&["rev-parse", "HEAD"]).trim().to_string();
+    (dir.to_string_lossy().to_string(), sha)
+}
+
+/// A report that adds mcp `x`, skill `s` and plugin `p` to `agent`, after building the
+/// imported mcp `x`.
+fn imported_build_report(world: &World, agent: &Rc<Agent>) -> Report {
+    let (url, sha) = git_repo(world.tmp.path(), "config");
+    let snapshot = crate::git::Snapshot::fetch(&url, "main", &sha).unwrap();
+    let job = crate::source::BuildJob {
+        name: "x".into(),
+        repo: url.clone(),
+        git_ref: "main".into(),
+        sha: sha.clone(),
+        commands: vec!["echo built> built.txt".into()],
+        dir: world.dirs.sources().join("x"),
+    };
+    let mut origins = BTreeMap::new();
+    origins.insert(("mcp", "x".to_string()), format!("imports.mcp {url}@main"));
+    Report {
+        dirs: world.dirs.clone(),
+        machine: crate::machine::Machine {
+            repo: url,
+            git_ref: "main".into(),
+            profiles: Vec::new(),
+            check_interval_minutes: 60,
+        },
+        state: State::default(),
+        remote: sha,
+        snapshot,
+        agents: vec![world.plan("claude", agent, world.desired("x", "s", "p"), false)],
+        builds: vec![job],
+        skipped: Vec::new(),
+        warnings: Vec::new(),
+        watched: Vec::new(),
+        silent_update: false,
+        origins,
+    }
+}
+
+/// Whether the build ran: each run leaves a log, which cleanup keeps.
+fn built(world: &World) -> bool {
+    std::fs::read_dir(world.dirs.logs()).is_ok_and(|mut logs| logs.next().is_some())
+}
+
+#[test]
+fn no_applies_nothing_and_never_runs_the_imported_build() {
+    let world = World::new();
+    let claude = world.agent("claude", &[]);
+    let report = imported_build_report(&world, &claude);
+    assert!(report.has_imported_build());
+    let no = answer(true, false);
+    let mut events = Vec::new();
+    let applied = run(report, &no, "agsync apply", |_| Ok(()), &mut |e| {
+        events.push(e.clone())
+    })
+    .unwrap();
+
+    assert_eq!(*no.asked.borrow(), 1);
+    assert!(applied.pending && applied.imported_build && !applied.confirmed);
+    assert!(applied.events.is_empty() && events.is_empty());
+    assert!(!built(&world));
+    assert!(claude.mcps.borrow().is_empty());
+    assert!(claude.plugins.borrow().is_empty());
+    assert!(!claude.skills_dir.join("s").exists());
+    assert!(!world.dirs.state_file().exists());
+}
+
+#[test]
+fn without_an_answer_the_imported_build_never_runs() {
+    let world = World::new();
+    let claude = world.agent("claude", &[]);
+    let report = imported_build_report(&world, &claude);
+    let nobody = answer(false, true);
+    let err = run(report, &nobody, "agsync apply", |_| Ok(()), &mut |_| {}).unwrap_err();
+
+    assert!(err.to_string().contains("agsync apply --yes"), "{err:#}");
+    assert_eq!(*nobody.asked.borrow(), 0);
+    assert!(!built(&world));
+    assert!(claude.mcps.borrow().is_empty());
+    assert!(!world.dirs.state_file().exists());
+}
+
+#[test]
+fn yes_runs_the_imported_build_and_reports_each_step() {
+    let world = World::new();
+    let claude = world.agent("claude", &[]);
+    let report = imported_build_report(&world, &claude);
+    let yes = answer(true, true);
+    let mut events = Vec::new();
+    let applied = run(report, &yes, "agsync apply", |_| Ok(()), &mut |e| {
+        events.push(e.clone())
+    })
+    .unwrap();
+
+    assert!(applied.confirmed && built(&world));
+    assert_eq!(applied.failures, 0);
+    assert!(applied.mcp_written);
+    assert_eq!(events, applied.events);
+    let steps: Vec<String> = events
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap()["event"].to_string())
+        .collect();
+    let expected = [
+        "build_started",
+        "build_done",
+        "written",
+        "written",
+        "written",
+        "cleaned",
+    ];
+    assert_eq!(steps, expected.map(|s| format!("\"{s}\"")));
+    let json = serde_json::to_value(&applied).unwrap();
+    assert_eq!(json["plan"]["builds"][0]["name"], "x");
+    assert!(world.dirs.state_file().is_file());
 }
