@@ -71,16 +71,8 @@ struct Saved {
 /// Highest `vX.Y.Z` tag of the release repo.
 pub fn latest() -> anyhow::Result<Version> {
     let url = std::env::var(RELEASES_VAR).unwrap_or_else(|_| RELEASES_URL.to_string());
-    let args = [
-        "-c",
-        "protocol.ext.allow=never",
-        "ls-remote",
-        "--tags",
-        "--refs",
-        "--end-of-options",
-        &url,
-    ];
-    let out = crate::git::git(&args, None)?;
+    let args = ["ls-remote", "--tags", "--refs", "--end-of-options", &url];
+    let out = crate::git::network(&args, None)?;
     highest_tag(&out).with_context(|| format!("nenhuma tag vX.Y.Z em {url}"))
 }
 

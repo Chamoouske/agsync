@@ -129,10 +129,114 @@ fn refuse_option(url: &str, git_ref: &str) -> anyhow::Result<()> {
 
 /// [`git`] for commands that reach a remote: the `ext::` transport, which runs a
 /// command, stays off whatever the user's git config says.
-fn network(args: &[&str], cwd: Option<&Path>) -> anyhow::Result<String> {
+///
+/// Ssh runs in batch mode too: a key with a passphrase outside the ssh-agent fails
+/// fast, with a hint, instead of asking for the passphrase or hanging.
+pub fn network(args: &[&str], cwd: Option<&Path>) -> anyhow::Result<String> {
+    network_with(args, cwd, &SshSetup::read(cwd))
+}
+
+fn network_with(args: &[&str], cwd: Option<&Path>, ssh: &SshSetup) -> anyhow::Result<String> {
     let mut all = vec!["-c", "protocol.ext.allow=never"];
     all.extend_from_slice(args);
-    git(&all, cwd)
+    let command = ssh.batch();
+    run(&all, cwd, command.as_deref()).map_err(|e| match ssh_hint(&format!("{e:#}")) {
+        Some(hint) => anyhow::anyhow!("{e:#}; {hint}"),
+        None => e,
+    })
+}
+
+/// The user's ssh setup for git: environment first, then git config.
+#[derive(Debug, Default)]
+struct SshSetup {
+    env_command: Option<String>,
+    env_program: bool,
+    env_variant: Option<String>,
+    command: Option<String>,
+    variant: Option<String>,
+}
+
+impl SshSetup {
+    fn read(cwd: Option<&Path>) -> SshSetup {
+        let pattern = r"^(core\.sshcommand|ssh\.variant)$";
+        let config = git(&["config", "--get-regexp", pattern], cwd).unwrap_or_default();
+        let value = |key: &str| {
+            config
+                .lines()
+                .filter_map(|line| line.split_once(' '))
+                .filter(|(k, _)| *k == key)
+                .map(|(_, v)| v.to_string())
+                .next_back()
+        };
+        SshSetup {
+            env_command: std::env::var("GIT_SSH_COMMAND").ok(),
+            env_program: std::env::var_os("GIT_SSH").is_some(),
+            env_variant: std::env::var("GIT_SSH_VARIANT").ok(),
+            command: value("core.sshcommand"),
+            variant: value("ssh.variant"),
+        }
+    }
+
+    /// `GIT_SSH_COMMAND` for a network call: the user's ssh command (env, then
+    /// `core.sshCommand`, else `ssh`) with `-o BatchMode=yes` appended. `None` keeps
+    /// git's own choice when the ssh may not be OpenSSH: a `GIT_SSH` program, plink,
+    /// or an ssh variant other than `ssh`.
+    fn batch(&self) -> Option<String> {
+        let base = match given(&self.env_command) {
+            Some(command) => command,
+            None if self.env_program => return None,
+            None => given(&self.command).unwrap_or_else(|| "ssh".to_string()),
+        };
+        let variant = given(&self.env_variant)
+            .or_else(|| given(&self.variant))
+            .unwrap_or_else(|| "auto".to_string())
+            .to_lowercase();
+        let openssh = match variant.as_str() {
+            "ssh" => true,
+            "auto" => !is_plink(&base),
+            _ => false,
+        };
+        openssh.then(|| format!("{base} -o BatchMode=yes"))
+    }
+}
+
+fn given(text: &Option<String>) -> Option<String> {
+    let text = text.as_deref()?.trim();
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+/// True when the program of an ssh command is plink or tortoiseplink.
+fn is_plink(command: &str) -> bool {
+    let program = match command.strip_prefix(['"', '\'']) {
+        Some(rest) => rest.split(['"', '\'']).next(),
+        None => command.split_whitespace().next(),
+    };
+    let file = program
+        .unwrap_or("")
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("");
+    let file = file.to_lowercase();
+    let name = file.strip_suffix(".exe").unwrap_or(&file);
+    name == "plink" || name == "tortoiseplink"
+}
+
+/// Hint for an ssh failure caused by running without prompts.
+pub fn ssh_hint(error: &str) -> Option<&'static str> {
+    let text = error.to_lowercase();
+    if text.contains("permission denied (publickey") {
+        return Some(
+            "o agsync roda o ssh sem prompt (BatchMode=yes): carregue a chave no ssh-agent \
+             (`ssh-add <chave>`) ou use uma chave sem passphrase; teste com `ssh -o BatchMode=yes -T <host>`",
+        );
+    }
+    if text.contains("host key verification failed") {
+        return Some(
+            "o agsync roda o ssh sem prompt (BatchMode=yes): aceite a chave do host antes, \
+             com `ssh -T <host>` uma vez no terminal",
+        );
+    }
+    None
 }
 
 /// Checkout of the config repo: a temp dir deleted on drop, or a cache entry kept.
@@ -184,17 +288,25 @@ impl Snapshot {
 
 /// Runs `git` and returns stdout; the error carries git's stderr.
 ///
-/// Git never prompts for credentials here (`GIT_TERMINAL_PROMPT=0`, and no Git
-/// Credential Manager dialog): a missing credential fails fast instead of hanging.
+/// Git never prompts for credentials here (`GIT_TERMINAL_PROMPT=0`, no Git
+/// Credential Manager dialog, no ssh askpass): a missing credential fails fast instead of hanging.
 /// The binary is the one [`crate::which::find`] picks, never a Windows `git` seen
 /// from WSL.
 pub fn git(args: &[&str], cwd: Option<&Path>) -> anyhow::Result<String> {
+    run(args, cwd, None)
+}
+
+fn run(args: &[&str], cwd: Option<&Path>, ssh: Option<&str>) -> anyhow::Result<String> {
     let exe = crate::which::require("git").map_err(anyhow::Error::msg)?;
     let mut cmd = Command::new(exe);
     cmd.args(args)
         .stdin(Stdio::null())
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GCM_INTERACTIVE", "never");
+        .env("GCM_INTERACTIVE", "never")
+        .env("SSH_ASKPASS_REQUIRE", "never");
+    if let Some(ssh) = ssh {
+        cmd.env("GIT_SSH_COMMAND", ssh);
+    }
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
@@ -305,6 +417,93 @@ profiles: []
         )
         .unwrap();
         assert_eq!(seen.trim(), "0 never");
+    }
+
+    #[test]
+    fn batch_mode_is_appended_to_the_users_ssh_command() {
+        let text = |t: &str| Some(t.to_string());
+        let user = SshSetup {
+            env_command: text("ssh -i ~/.ssh/k"),
+            env_program: true,
+            command: text("myssh"),
+            ..SshSetup::default()
+        };
+        assert_eq!(user.batch().unwrap(), "ssh -i ~/.ssh/k -o BatchMode=yes");
+        let config = SshSetup {
+            command: text("myssh\n"),
+            ..SshSetup::default()
+        };
+        assert_eq!(config.batch().unwrap(), "myssh -o BatchMode=yes");
+        let empty = SshSetup {
+            env_command: text(""),
+            ..SshSetup::default()
+        };
+        assert_eq!(empty.batch().unwrap(), "ssh -o BatchMode=yes");
+        let program = SshSetup {
+            env_program: true,
+            command: text("myssh"),
+            ..SshSetup::default()
+        };
+        assert!(program.batch().is_none());
+    }
+
+    #[test]
+    fn batch_mode_skips_ssh_that_is_not_openssh() {
+        let text = |t: &str| Some(t.to_string());
+        let with = |command: &str, variant: Option<&str>| SshSetup {
+            command: text(command),
+            variant: variant.map(String::from),
+            ..SshSetup::default()
+        };
+        assert!(with("plink -batch", None).batch().is_none());
+        assert!(
+            with("\"C:\\Program Files\\PuTTY\\PLINK.EXE\"", None)
+                .batch()
+                .is_none()
+        );
+        assert!(with("/usr/bin/tortoiseplink", None).batch().is_none());
+        assert!(with("myssh", Some("putty")).batch().is_none());
+        assert!(with("myssh", Some("simple")).batch().is_none());
+        assert!(with("plink", Some("ssh")).batch().is_some());
+        assert!(with("ssh", Some("auto")).batch().is_some());
+        let env = SshSetup {
+            env_variant: text("plink"),
+            variant: text("ssh"),
+            ..SshSetup::default()
+        };
+        assert!(env.batch().is_none());
+    }
+
+    #[test]
+    fn ssh_without_agent_fails_fast_with_hint() {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let dir = tmp.path();
+        let mark = dir.join("prompted").to_string_lossy().replace('\\', "/");
+        let fake = dir.join("fake-ssh");
+        let script = format!(
+            "case \"$*\" in *BatchMode=yes*) echo 'git@h: Permission denied (publickey).' >&2; exit 255;; esac\ntouch '{mark}'\nexit 1\n"
+        );
+        std::fs::write(&fake, script).unwrap();
+        let fake_text = fake.to_string_lossy().replace('\\', "/");
+        git(&["init", "-q"], Some(dir)).unwrap();
+        git(
+            &["config", "core.sshCommand", &format!("sh '{fake_text}'")],
+            Some(dir),
+        )
+        .unwrap();
+        let args = ["ls-remote", "ssh://git@agsync.invalid/x.git"];
+        let ssh = SshSetup {
+            env_command: None,
+            env_program: false,
+            env_variant: None,
+            ..SshSetup::read(Some(dir))
+        };
+        let error = network_with(&args, Some(dir), &ssh)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Permission denied (publickey)"), "{error}");
+        assert!(error.contains("ssh-add"), "{error}");
+        assert!(!dir.join("prompted").exists());
     }
 
     #[test]
