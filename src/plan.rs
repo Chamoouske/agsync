@@ -2,8 +2,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::Serialize;
+
 /// Decision for one named entry of one agent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Action {
     /// New entry, name free in the agent config.
     Add,
