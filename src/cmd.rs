@@ -30,8 +30,8 @@ pub fn secret_set(name: &str) -> anyhow::Result<()> {
 /// Prints the names in `secrets.env`, one per line.
 pub fn secret_list() -> anyhow::Result<()> {
     let dirs = Dirs::from_env()?;
-    for name in secret::file::names(&secret::file_path(&dirs.config))? {
-        println!("{name}");
+    for entry in secret::file::list(&secret::file_path(&dirs.config))? {
+        println!("{}", entry.name);
     }
     Ok(())
 }
