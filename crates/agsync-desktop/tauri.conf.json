@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "agsync",
+  "version": "0.1.0",
+  "identifier": "dev.agsync.desktop",
+  "build": {
+    "beforeDevCommand": { "script": "npm run dev", "cwd": "ui" },
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": { "script": "npm run build", "cwd": "ui" },
+    "frontendDist": "ui/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "title": "agsync", "width": 900, "height": 640 }],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:5173"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["icons/icon.png", "icons/icon.ico"]
+  }
+}

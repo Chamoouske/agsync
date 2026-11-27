@@ -1,0 +1,16 @@
+[package]
+name = "agsync-desktop"
+version = "0.1.0"
+edition = "2024"
+description = "agsync desktop app: a Tauri window over agsync-core"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+agsync-core = { path = "../agsync-core" }
+tauri = { version = "2", features = [] }
