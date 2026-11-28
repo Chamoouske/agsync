@@ -1,6 +1,11 @@
 //! agsync command line.
 
+use agsync_core::prompt::from_flag;
 use clap::{Parser, Subcommand};
+
+mod cmd;
+mod init;
+mod rollback;
 
 /// Sync MCP servers and skills from a git config repo into coding agents.
 #[derive(Parser)]
@@ -140,7 +145,7 @@ impl Cmd {
 fn main() {
     let cli = Cli::parse();
     if cli.command.warns_pending() {
-        agsync::hook::warn_pending();
+        agsync_core::hook::warn_pending();
     }
     let result = match cli.command {
         Cmd::Init {
@@ -149,32 +154,34 @@ fn main() {
             profiles,
             yes,
             silent_update,
-        } => agsync::init::init(url, git_ref, profiles, yes, silent_update),
-        Cmd::Status => agsync::report::status().map(|()| true),
-        Cmd::Diff => agsync::report::diff().map(|()| true),
-        Cmd::Apply { yes, adopt } => agsync::apply::apply(yes, adopt).map(|()| true),
-        Cmd::Rollback { yes } => agsync::rollback::rollback(yes).map(|()| true),
-        Cmd::Check => agsync::check::check().map(|()| true),
+        } => init::init(url, git_ref, profiles, yes, silent_update),
+        Cmd::Status => agsync_core::report::status().map(|()| true),
+        Cmd::Diff => agsync_core::report::diff().map(|()| true),
+        Cmd::Apply { yes, adopt } => {
+            agsync_core::apply::apply(from_flag(yes), adopt).map(|()| true)
+        }
+        Cmd::Rollback { yes } => rollback::rollback(from_flag(yes)).map(|()| true),
+        Cmd::Check => agsync_core::check::check().map(|()| true),
         Cmd::Hook { command } => match command {
-            None => agsync::hook::hook().map(|()| true),
-            Some(HookCmd::Install { yes }) => agsync::shell::install(yes),
-            Some(HookCmd::Remove) => agsync::shell::remove().map(|()| true),
+            None => agsync_core::hook::hook().map(|()| true),
+            Some(HookCmd::Install { yes }) => agsync_core::shell::install(from_flag(yes)),
+            Some(HookCmd::Remove) => agsync_core::shell::remove().map(|()| true),
         },
-        Cmd::Doctor => agsync::doctor::doctor(),
+        Cmd::Doctor => agsync_core::doctor::doctor(),
         Cmd::Schedule { command } => match command {
-            ScheduleCmd::Install => agsync::schedule::install().map(|()| true),
-            ScheduleCmd::Remove => agsync::schedule::remove().map(|()| true),
-            ScheduleCmd::Status => agsync::schedule::status(),
+            ScheduleCmd::Install => agsync_core::schedule::install().map(|()| true),
+            ScheduleCmd::Remove => agsync_core::schedule::remove().map(|()| true),
+            ScheduleCmd::Status => agsync_core::schedule::status(),
         },
-        Cmd::MigrateLegacy { yes } => agsync::legacy::migrate_legacy(yes),
-        Cmd::Uninstall { yes, purge } => agsync::uninstall::uninstall(yes, purge),
-        Cmd::Update { yes } => agsync::self_update::update(yes),
+        Cmd::MigrateLegacy { yes } => agsync_core::legacy::migrate_legacy(from_flag(yes)),
+        Cmd::Uninstall { yes, purge } => agsync_core::uninstall::uninstall(from_flag(yes), purge),
+        Cmd::Update { yes } => agsync_core::self_update::update(from_flag(yes)),
         Cmd::Secret {
             command: SecretCmd::Set { name },
-        } => agsync::cmd::secret_set(&name).map(|()| true),
+        } => cmd::secret_set(&name).map(|()| true),
         Cmd::Secret {
             command: SecretCmd::List,
-        } => agsync::cmd::secret_list().map(|()| true),
+        } => cmd::secret_list().map(|()| true),
     };
     match result {
         Ok(true) => {}

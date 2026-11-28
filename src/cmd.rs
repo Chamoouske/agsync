@@ -2,8 +2,8 @@
 
 use std::io::{BufRead, IsTerminal};
 
-use crate::paths::Dirs;
-use crate::secret;
+use agsync_core::paths::Dirs;
+use agsync_core::secret;
 
 /// Reads a value (no echo on a terminal, else one stdin line) and stores it in `secrets.env`.
 pub fn secret_set(name: &str) -> anyhow::Result<()> {
@@ -30,8 +30,8 @@ pub fn secret_set(name: &str) -> anyhow::Result<()> {
 /// Prints the names in `secrets.env`, one per line.
 pub fn secret_list() -> anyhow::Result<()> {
     let dirs = Dirs::from_env()?;
-    for name in secret::file::names(&secret::file_path(&dirs.config))? {
-        println!("{name}");
+    for entry in secret::file::list(&secret::file_path(&dirs.config))? {
+        println!("{}", entry.name);
     }
     Ok(())
 }

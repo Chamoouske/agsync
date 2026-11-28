@@ -71,7 +71,7 @@ fn plant_home(env: &Env) {
     let backups = env.root.path().join("link-backups");
     let opencode_skills = env.home.join(".config").join("opencode").join("skills");
     let target = opencode_skills.join("grill-me");
-    agsync::agent::link::install(&canonical.join("grill-me"), &target, &backups).unwrap();
+    agsync_core::agent::link::install(&canonical.join("grill-me"), &target, &backups).unwrap();
 }
 
 fn init_with_tdd(env: &Env) {
@@ -99,8 +99,8 @@ fn backup_dir(env: &Env) -> PathBuf {
 #[test]
 fn migrate_legacy_backs_up_and_removes_the_old_setup() {
     let mut env = Env::new();
-    let claude = agsync::which::find("claude").is_some();
-    let opencode = agsync::which::find("opencode").is_some();
+    let claude = agsync_core::which::find("claude").is_some();
+    let opencode = agsync_core::which::find("opencode").is_some();
     if !claude || !opencode {
         eprintln!("SKIP parte real de migrate_legacy: claude={claude} opencode={opencode}");
     }

@@ -51,8 +51,8 @@ fn schedule_commands_use_the_test_scheduler() {
 mod windows_task {
     use std::path::Path;
 
-    use agsync::schedule::task::TaskScheduler;
-    use agsync::schedule::{Scheduler, Status};
+    use agsync_core::schedule::task::TaskScheduler;
+    use agsync_core::schedule::{Scheduler, Status};
 
     /// Deletes the test task on drop, also when an assertion failed.
     struct Guard(String);

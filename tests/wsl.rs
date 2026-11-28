@@ -11,7 +11,7 @@ use std::process::Command;
 use common::{Env, fake_bin, git, path_with, text};
 
 fn in_wsl(test: &str) -> bool {
-    if agsync::host::wsl::Wsl::detect().is_some() {
+    if agsync_core::host::wsl::Wsl::detect().is_some() {
         return true;
     }
     eprintln!("SKIP {test}: nao e WSL");
@@ -45,7 +45,7 @@ struct WindowsDir(PathBuf);
 
 impl WindowsDir {
     fn new() -> Option<WindowsDir> {
-        let host = agsync::host::wsl::Wsl::detect()?;
+        let host = agsync_core::host::wsl::Wsl::detect()?;
         let cmd = host.mount_root.join("c/Windows/System32/cmd.exe");
         let out = Command::new(cmd)
             .args(["/d", "/c", "echo %TEMP%"])
@@ -99,7 +99,7 @@ fn programs_on_windows_drives_are_ignored() {
     let mut dirs = vec![win_bin.clone(), bin];
     for tool in ["git", "sh"] {
         dirs.push(
-            agsync::which::find(tool)
+            agsync_core::which::find(tool)
                 .unwrap()
                 .parent()
                 .unwrap()
@@ -185,7 +185,7 @@ fn without_systemd_and_cron_the_hook_starts_the_check() {
     let mut env = Env::new();
     let bin = fake_bin(&env, &["codex"]);
     for tool in ["git", "sh"] {
-        let exe = agsync::which::find(tool).unwrap();
+        let exe = agsync_core::which::find(tool).unwrap();
         std::os::unix::fs::symlink(exe, bin.join(tool)).unwrap();
     }
     env.path = Some(bin.clone().into_os_string());

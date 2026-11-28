@@ -9,8 +9,8 @@ Requer Rust estável com `rustfmt` e `clippy`, e `git` no PATH.
 ```sh
 cargo build
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --no-fail-fast
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --no-fail-fast
 ```
 
 São os mesmos passos do CI. Para rodar sem mexer na sua máquina e para os testes dos scripts de packaging, veja [Desenvolvimento](docs/src/contribuicao/desenvolvimento.md).

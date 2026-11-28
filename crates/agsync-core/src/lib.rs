@@ -1,0 +1,46 @@
+//! agsync: applies MCP servers and skills from a remote git config repo
+//! to the user-level configuration of coding agents.
+
+pub mod agent;
+pub mod apply;
+pub mod atomic;
+pub mod background;
+pub mod check;
+pub mod checklog;
+pub mod cleanup;
+pub mod compose;
+pub mod deliver;
+pub mod desired;
+pub mod doctor;
+pub mod git;
+pub mod hash;
+pub mod hook;
+pub mod host;
+pub mod import_cache;
+pub mod init;
+pub mod legacy;
+pub mod lock;
+pub mod machine;
+pub mod manifest;
+pub mod mcp;
+pub mod notify;
+pub mod paths;
+pub mod pending;
+pub mod plan;
+pub mod plugin;
+pub mod prompt;
+pub mod report;
+pub mod resolved;
+pub mod rollback;
+pub mod schedule;
+pub mod secret;
+pub mod self_update;
+pub mod shell;
+pub mod snapshot_cache;
+pub mod source;
+pub mod state;
+pub mod tmp;
+pub mod uninstall;
+pub mod update;
+pub mod watch;
+pub mod which;

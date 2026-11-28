@@ -1,10 +1,8 @@
-//! `agsync init`: machine.toml, repo access, schedule, shell hook, first apply.
-//!
-//! Each step reports its own failure; later steps still run when they make sense.
+//! `agsync init` on the terminal: asks what is missing, then prints each step as it runs.
 
-use crate::git;
-use crate::machine::Machine;
-use crate::paths::Dirs;
+use agsync_core::init::{Access, FirstApply, Options, Saved, Scheduling};
+use agsync_core::machine::Machine;
+use agsync_core::paths::Dirs;
 
 /// Runs every step. Returns false when a step failed. A missing `url` or empty
 /// `profiles` is asked on the terminal; given values are kept as they are.
@@ -18,56 +16,47 @@ pub fn init(
     let dirs = Dirs::from_env()?;
     let url = match url {
         Some(url) => url,
-        None => crate::prompt::ask("URL do repo de config")?,
+        None => agsync_core::prompt::ask("URL do repo de config")?,
     };
     let profiles = if profiles.is_empty() {
-        split_profiles(&crate::prompt::ask(
+        split_profiles(&agsync_core::prompt::ask(
             "Perfis desta maquina (separados por virgula)",
         )?)
     } else {
         profiles
     };
-    let machine = Machine::new(url, git_ref, profiles);
-    let file = dirs.machine_file();
-    println!("[1/5] machine.toml");
-    machine.save(&file)?;
-    println!("gravado {}", file.display());
-    println!("perfis ativos: {}", machine.profiles.join(", "));
-
-    println!("[2/5] acesso ao repo");
-    let reachable = match git::resolve(&machine.repo, &machine.git_ref) {
-        Ok(commit) => {
-            println!(
-                "repo ok: {} ({} em {commit})",
-                machine.repo, machine.git_ref
-            );
-            true
-        }
-        Err(e) => {
-            let text = format!("{e:#}");
-            let hint = crate::doctor::hint(&text)
-                .map(|h| format!("; {h}"))
-                .unwrap_or_default();
-            eprintln!("repo inacessivel: {text}{hint}");
-            false
-        }
+    let options = Options {
+        url,
+        git_ref,
+        profiles,
+        yes,
+        silent,
     };
 
+    println!("[1/5] machine.toml");
+    let saved = agsync_core::init::save(&dirs, &options)?;
+    print_saved(&saved);
+
+    println!("[2/5] acesso ao repo");
+    let access = agsync_core::init::check_access(&saved.machine);
+    print_access(&saved.machine, &access);
+
     println!("[3/5] agendamento do check");
-    if let Err(e) = crate::schedule::install() {
-        eprintln!("aviso: agendamento nao registrado: {e:#}");
-        eprintln!("o `agsync hook` dispara o check quando o shell abre");
-    }
+    print_schedule(&agsync_core::init::schedule());
 
     println!("[4/5] hook de shell");
-    let hooked = crate::shell::install(yes).unwrap_or_else(|e| {
-        eprintln!("hook de shell falhou: {e:#}");
-        false
-    });
+    let hooked =
+        agsync_core::shell::install(agsync_core::prompt::from_flag(yes)).unwrap_or_else(|e| {
+            eprintln!("hook de shell falhou: {e:#}");
+            false
+        });
 
     println!("[5/5] primeiro apply");
-    let applied = first_apply(reachable, yes, silent);
-    Ok(reachable && hooked && applied)
+    let apply = agsync_core::init::first_apply(&access, yes, silent);
+    print_apply(&apply);
+
+    let reachable = matches!(access, Access::Reachable { .. });
+    Ok(reachable && hooked && apply.ok())
 }
 
 fn split_profiles(answer: &str) -> Vec<String> {
@@ -78,21 +67,44 @@ fn split_profiles(answer: &str) -> Vec<String> {
         .collect()
 }
 
-fn first_apply(reachable: bool, yes: bool, silent: bool) -> bool {
-    if !reachable {
-        println!("pulado: repo inacessivel; corrija e rode `agsync apply`");
-        return true;
+fn print_saved(saved: &Saved) {
+    println!("gravado {}", saved.file.display());
+    println!("perfis ativos: {}", saved.machine.profiles.join(", "));
+}
+
+fn print_access(machine: &Machine, access: &Access) {
+    match access {
+        Access::Reachable { commit } => {
+            println!(
+                "repo ok: {} ({} em {commit})",
+                machine.repo, machine.git_ref
+            );
+        }
+        Access::Unreachable { reason, hint } => {
+            let hint = hint.map(|h| format!("; {h}")).unwrap_or_default();
+            eprintln!("repo inacessivel: {reason}{hint}");
+        }
     }
-    match crate::apply::init_apply(yes, silent) {
-        Ok(true) => true,
-        Ok(false) => {
-            println!("pulado (sem TTY): rode `agsync apply --yes`");
-            true
+}
+
+fn print_schedule(schedule: &Scheduling) {
+    match schedule {
+        Scheduling::Scheduled(scheduled) => scheduled.print(),
+        Scheduling::Failed { reason } => {
+            eprintln!("aviso: agendamento nao registrado: {reason}");
+            eprintln!("o `agsync hook` dispara o check quando o shell abre");
         }
-        Err(e) => {
-            eprintln!("apply falhou: {e:#}");
-            false
+    }
+}
+
+fn print_apply(apply: &FirstApply) {
+    match apply {
+        FirstApply::Applied => {}
+        FirstApply::Unreachable => {
+            println!("pulado: repo inacessivel; corrija e rode `agsync apply`");
         }
+        FirstApply::NoTty => println!("pulado (sem TTY): rode `agsync apply --yes`"),
+        FirstApply::Failed { reason } => eprintln!("apply falhou: {reason}"),
     }
 }
 

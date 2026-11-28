@@ -32,7 +32,7 @@ const FIXTURE: &str = r#"{
 
 fn real_files() -> Vec<PathBuf> {
     let mut dirs = vec![
-        agsync::paths::home()
+        agsync_core::paths::home()
             .unwrap()
             .join(".config")
             .join("opencode"),
@@ -80,7 +80,7 @@ mcps:
 }
 
 fn opencode(env: &Env, args: &[&str]) -> String {
-    let mut cmd = Command::new(agsync::which::find("opencode").unwrap());
+    let mut cmd = Command::new(agsync_core::which::find("opencode").unwrap());
     cmd.args(args);
     env.isolate(&mut cmd);
     cmd.env("OPENCODE_CONFIG_DIR", &env.opencode_dir);
@@ -101,7 +101,7 @@ fn servers(env: &Env) -> serde_json::Map<String, Value> {
 
 #[test]
 fn opencode_end_to_end() {
-    if agsync::which::find("opencode").is_none() {
+    if agsync_core::which::find("opencode").is_none() {
         eprintln!("SKIP opencode_end_to_end: `opencode` nao esta no PATH");
         return;
     }

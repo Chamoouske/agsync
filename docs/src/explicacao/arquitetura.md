@@ -1,6 +1,6 @@
 # Arquitetura
 
-O agsync é um único binário Rust (`src/main.rs` com a CLI em clap e `src/lib.rs` com os módulos). Ele não tem servidor nem daemon: cada execução lê o estado local, consulta o remoto pelo `git` do sistema, planeja e, no `apply`, escreve.
+O agsync é um único binário Rust (`src/main.rs` com a CLI em clap; os módulos ficam na crate `agsync-core`, em `crates/agsync-core/src`, sem clap nem rpassword). Ele não tem servidor nem daemon: cada execução lê o estado local, consulta o remoto pelo `git` do sistema, planeja e, no `apply`, escreve.
 
 ## Módulos
 
@@ -28,11 +28,11 @@ CLI (main.rs)
 
 Partes que variam por SO ou por agente ficam atrás de uma interface pequena, com uma implementação por caso:
 
-- **Agentes** (`src/agent`): cada adaptador traduz o modelo neutro de MCP (`src/mcp.rs`) para o formato do agente, lê as entradas atuais e escreve pelo CLI do agente ou editando o arquivo.
-- **Agendador** (`src/schedule`): Task Scheduler no Windows; timer do systemd de usuário ou crontab no Linux.
-- **Shells** (`src/shell`): PowerShell 5.1 e 7, bash, zsh e fish.
-- **Notificação** (`src/notify`): toast do Windows via WinRT, `notify-send` no Linux.
-- **Host** (`src/host`): Windows/Linux nativo ou Linux dentro do WSL, que ignora os executáveis do Windows.
+- **Agentes** (`crates/agsync-core/src/agent`): cada adaptador traduz o modelo neutro de MCP (`crates/agsync-core/src/mcp.rs`) para o formato do agente, lê as entradas atuais e escreve pelo CLI do agente ou editando o arquivo.
+- **Agendador** (`crates/agsync-core/src/schedule`): Task Scheduler no Windows; timer do systemd de usuário ou crontab no Linux.
+- **Shells** (`crates/agsync-core/src/shell`): PowerShell 5.1 e 7, bash, zsh e fish.
+- **Notificação** (`crates/agsync-core/src/notify`): toast do Windows via WinRT, `notify-send` no Linux.
+- **Host** (`crates/agsync-core/src/host`): Windows/Linux nativo ou Linux dentro do WSL, que ignora os executáveis do Windows.
 
 Os testes trocam essas implementações por versões em arquivo, por variáveis `AGSYNC_TEST_*`, e usam `examples/fake_agent.rs` no lugar dos CLIs reais.
 

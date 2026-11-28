@@ -12,7 +12,7 @@ pub const APM_HINT: &str = "pip uninstall apm-cli";
 
 /// Real configs this test must never change.
 pub fn real_files() -> Vec<PathBuf> {
-    let home = agsync::paths::home().unwrap();
+    let home = agsync_core::paths::home().unwrap();
     vec![
         home.join(".config").join("opencode").join("opencode.json"),
         home.join(".config").join("opencode").join("opencode.jsonc"),

@@ -55,7 +55,7 @@ fn cmd_shims_and_npx_start_in_claude_without_a_wrapper() {
     if claude_missing("cmd_shims_and_npx_start_in_claude_without_a_wrapper") {
         return;
     }
-    if agsync::which::find("npx").is_none() {
+    if agsync_core::which::find("npx").is_none() {
         eprintln!(
             "SKIP cmd_shims_and_npx_start_in_claude_without_a_wrapper: `npx` nao esta no PATH"
         );

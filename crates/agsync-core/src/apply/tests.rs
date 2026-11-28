@@ -1,0 +1,529 @@
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+use super::*;
+use crate::agent::Adapter;
+use crate::deliver::McpWant;
+use crate::desired::{Desired, SkillSrc};
+use crate::hash::hash_dir;
+use crate::mcp::McpSpec;
+use crate::plugin::PluginSpec;
+use crate::state::LinkMode;
+use crate::tmp::TempDir;
+
+/// Agent config held in memory; items named in `broken` fail to be written.
+#[derive(Default)]
+struct Agent {
+    mcps: RefCell<BTreeMap<String, McpSpec>>,
+    plugins: RefCell<BTreeSet<String>>,
+    broken: BTreeSet<String>,
+    skills_dir: PathBuf,
+}
+
+impl Agent {
+    fn fail_if_broken(&self, name: &str) -> anyhow::Result<()> {
+        if self.broken.contains(name) {
+            anyhow::bail!("falha simulada em {name}");
+        }
+        Ok(())
+    }
+}
+
+struct Fake(Rc<Agent>);
+
+impl Adapter for Fake {
+    fn mcps(&self) -> anyhow::Result<BTreeMap<String, String>> {
+        let mcps = self.0.mcps.borrow();
+        Ok(mcps.iter().map(|(n, s)| (n.clone(), s.hash())).collect())
+    }
+
+    fn mcp_spec(&self, name: &str) -> anyhow::Result<Option<McpSpec>> {
+        Ok(self.0.mcps.borrow().get(name).cloned())
+    }
+
+    fn skills_dir(&self) -> PathBuf {
+        self.0.skills_dir.clone()
+    }
+
+    fn backup(&self, _dir: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn write_mcp(&self, name: &str, spec: &McpSpec) -> anyhow::Result<()> {
+        self.0.fail_if_broken(name)?;
+        self.0.mcps.borrow_mut().insert(name.into(), spec.clone());
+        Ok(())
+    }
+
+    fn remove_mcp(&self, name: &str) -> anyhow::Result<()> {
+        self.0.mcps.borrow_mut().remove(name);
+        Ok(())
+    }
+
+    fn write_skill(&self, name: &str, cached: &Path, backups: &Path) -> anyhow::Result<LinkMode> {
+        self.0.fail_if_broken(name)?;
+        link::install(cached, &self.skills_dir().join(name), backups)
+    }
+
+    fn plugin_support(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn plugin_installed(&self, spec: &PluginSpec) -> anyhow::Result<Option<String>> {
+        let id = repo_id(&spec.name);
+        Ok(self.0.plugins.borrow().contains(&id).then_some(id))
+    }
+
+    fn plugin_named(&self, name: &str) -> anyhow::Result<Option<String>> {
+        let prefix = format!("{name}@");
+        let plugins = self.0.plugins.borrow();
+        let ids: Vec<&String> = plugins
+            .iter()
+            .filter(|id| id.starts_with(&prefix))
+            .collect();
+        Ok(match ids.as_slice() {
+            [id] => Some(id.to_string()),
+            _ => None,
+        })
+    }
+
+    fn plugin_present(&self, id: &str) -> anyhow::Result<bool> {
+        Ok(self.0.plugins.borrow().contains(id))
+    }
+
+    fn install_plugin(
+        &self,
+        spec: &PluginSpec,
+        _managed: &BTreeSet<String>,
+    ) -> anyhow::Result<String> {
+        self.0.fail_if_broken(&spec.name)?;
+        let id = repo_id(&spec.name);
+        self.0.plugins.borrow_mut().insert(id.clone());
+        Ok(id)
+    }
+
+    fn uninstall_plugin(&self, id: &str) -> anyhow::Result<()> {
+        self.0.plugins.borrow_mut().remove(id);
+        Ok(())
+    }
+}
+
+fn repo_id(name: &str) -> String {
+    format!("{name}@repo-market")
+}
+
+fn stdio(arg: &str) -> McpSpec {
+    McpSpec::Stdio {
+        command: "node".into(),
+        args: vec![arg.into()],
+        env: BTreeMap::new(),
+    }
+}
+
+struct World {
+    tmp: TempDir,
+    dirs: Dirs,
+    state: State,
+}
+
+impl World {
+    fn new() -> World {
+        let tmp = TempDir::new("agsync-test").unwrap();
+        let dirs = Dirs {
+            config: tmp.path().join("config"),
+            data: tmp.path().join("data"),
+        };
+        World {
+            tmp,
+            dirs,
+            state: State::default(),
+        }
+    }
+
+    fn agent(&self, name: &str, broken: &[&str]) -> Rc<Agent> {
+        Rc::new(Agent {
+            skills_dir: self.tmp.path().join(name).join("skills"),
+            broken: broken.iter().map(|s| s.to_string()).collect(),
+            ..Agent::default()
+        })
+    }
+
+    /// Folder with one `SKILL.md`, under `parent`.
+    fn skill_dir(&self, parent: &Path, name: &str, body: &str) -> PathBuf {
+        let dir = parent.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("SKILL.md"), body).unwrap();
+        dir
+    }
+
+    /// What the config repo declares: mcp, skill and plugin, each under its own name.
+    fn desired(&self, mcp: &str, skill: &str, plugin: &str) -> Desired {
+        let mut desired = Desired::default();
+        let spec = stdio("repo.js");
+        let want = McpWant {
+            shown: spec.clone(),
+            write: spec.clone(),
+            hash: spec.hash(),
+            sha: None,
+        };
+        desired.mcps.insert(mcp.into(), want);
+        let repo = self.tmp.path().join("repo");
+        let dir = self.skill_dir(&repo, skill, "repo skill");
+        let hash = hash_dir(&dir).unwrap();
+        let src = SkillSrc {
+            dir,
+            hash,
+            sha: None,
+        };
+        desired.skills.insert(skill.into(), src);
+        let spec = PluginSpec::new(plugin, "https://x/repo-market.git", "v1");
+        desired.plugins.insert(plugin.into(), spec);
+        desired
+    }
+
+    fn plan(
+        &self,
+        name: &'static str,
+        agent: &Rc<Agent>,
+        desired: Desired,
+        adopt: bool,
+    ) -> AgentPlan {
+        let tracked = self.state.agent(name);
+        let fake = Box::new(Fake(agent.clone()));
+        AgentPlan::new(name, fake, desired, &tracked, adopt, &mut Vec::new()).unwrap()
+    }
+
+    fn apply(&mut self, plan: &AgentPlan) -> usize {
+        let outcome = apply_agent(
+            plan,
+            &self.dirs,
+            &mut self.state,
+            &BTreeSet::new(),
+            &mut |_| {},
+        );
+        outcome.failures
+    }
+
+    fn saved(&self) -> State {
+        State::load(&self.dirs.state_file()).unwrap()
+    }
+}
+
+fn actions(plan: &AgentPlan) -> Vec<(&'static str, String, Action)> {
+    let mcps = plan.mcps.iter().map(|c| ("mcp", c));
+    let skills = plan.skills.iter().map(|c| ("skill", c));
+    let plugins = plan.plugins.iter().map(|c| ("plugin", c));
+    mcps.chain(skills)
+        .chain(plugins)
+        .map(|(kind, c)| (kind, c.name.clone(), c.action))
+        .collect()
+}
+
+/// Manual mcp `x`, skill `s` and plugin `p` (from another marketplace) on `agent`.
+fn install_by_hand(world: &World, agent: &Agent) {
+    agent
+        .mcps
+        .borrow_mut()
+        .insert("x".into(), stdio("manual.js"));
+    world.skill_dir(&agent.skills_dir, "s", "manual skill");
+    agent.plugins.borrow_mut().insert("p@other-market".into());
+}
+
+fn skill_body(agent: &Agent, name: &str) -> String {
+    std::fs::read_to_string(agent.skills_dir.join(name).join("SKILL.md")).unwrap()
+}
+
+#[test]
+fn exact_match_is_a_conflict_left_alone_without_adopt() {
+    let mut world = World::new();
+    let claude = world.agent("claude", &[]);
+    install_by_hand(&world, &claude);
+
+    let plan = world.plan("claude", &claude, world.desired("x", "s", "p"), false);
+    let expected = vec![
+        ("mcp", "x".to_string(), Action::Conflict),
+        ("skill", "s".to_string(), Action::Conflict),
+        ("plugin", "p".to_string(), Action::Conflict),
+    ];
+    assert_eq!(actions(&plan), expected);
+    assert_eq!(world.apply(&plan), 0);
+
+    assert_eq!(claude.mcps.borrow()["x"], stdio("manual.js"));
+    assert_eq!(skill_body(&claude, "s"), "manual skill");
+    assert!(claude.plugins.borrow().contains("p@other-market"));
+    assert_eq!(world.state.agent("claude"), Default::default());
+}
+
+#[test]
+fn exact_match_is_replaced_and_tracked_with_adopt() {
+    let mut world = World::new();
+    let claude = world.agent("claude", &[]);
+    install_by_hand(&world, &claude);
+
+    let plan = world.plan("claude", &claude, world.desired("x", "s", "p"), true);
+    let adopted = actions(&plan).iter().all(|(_, _, a)| *a == Action::Adopt);
+    assert!(adopted, "{:?}", actions(&plan));
+    assert_eq!(world.apply(&plan), 0);
+
+    assert_eq!(claude.mcps.borrow()["x"], stdio("repo.js"));
+    assert_eq!(skill_body(&claude, "s"), "repo skill");
+    let plugins: Vec<String> = claude.plugins.borrow().iter().cloned().collect();
+    assert_eq!(plugins, [repo_id("p")]);
+
+    let saved = world.saved().agent("claude");
+    assert!(saved.mcps.contains_key("x"));
+    assert!(saved.skills.contains_key("s"));
+    assert_eq!(saved.plugins["p"].plugin, Some(repo_id("p")));
+
+    let again = world.plan("claude", &claude, world.desired("x", "s", "p"), false);
+    let kept = actions(&again).iter().all(|(_, _, a)| *a == Action::Keep);
+    assert!(kept, "{:?}", actions(&again));
+}
+
+#[test]
+fn manual_items_without_a_match_stay_untouched() {
+    let mut world = World::new();
+    let claude = world.agent("claude", &[]);
+    install_by_hand(&world, &claude);
+
+    let plan = world.plan("claude", &claude, world.desired("y", "t", "q"), true);
+    let added = actions(&plan).iter().all(|(_, _, a)| *a == Action::Add);
+    assert!(added, "{:?}", actions(&plan));
+    assert_eq!(world.apply(&plan), 0);
+
+    assert_eq!(claude.mcps.borrow()["x"], stdio("manual.js"));
+    assert_eq!(skill_body(&claude, "s"), "manual skill");
+    assert!(claude.plugins.borrow().contains("p@other-market"));
+    let saved = world.saved().agent("claude");
+    assert!(!saved.mcps.contains_key("x"));
+    assert!(!saved.skills.contains_key("s"));
+    assert!(!saved.plugins.contains_key("p"));
+}
+
+#[test]
+fn homonyms_of_another_kind_or_agent_are_not_a_match() {
+    let mut world = World::new();
+    let claude = world.agent("claude", &[]);
+    world.skill_dir(&claude.skills_dir, "x", "manual skill named like the mcp");
+    claude
+        .mcps
+        .borrow_mut()
+        .insert("s".into(), stdio("manual mcp named like the skill"));
+    let codex = world.agent("codex", &[]);
+    install_by_hand(&world, &codex);
+
+    let plan = world.plan("claude", &claude, world.desired("x", "s", "p"), true);
+    let added = actions(&plan).iter().all(|(_, _, a)| *a == Action::Add);
+    assert!(added, "{:?}", actions(&plan));
+    assert_eq!(world.apply(&plan), 0);
+    assert_eq!(skill_body(&claude, "x"), "manual skill named like the mcp");
+    assert_eq!(
+        claude.mcps.borrow()["s"],
+        stdio("manual mcp named like the skill")
+    );
+
+    let other = world.plan("codex", &codex, Desired::default(), true);
+    assert!(actions(&other).is_empty(), "{:?}", actions(&other));
+    assert_eq!(world.apply(&other), 0);
+    assert_eq!(codex.mcps.borrow()["x"], stdio("manual.js"));
+    assert_eq!(skill_body(&codex, "s"), "manual skill");
+    assert!(codex.plugins.borrow().contains("p@other-market"));
+    assert_eq!(world.saved().agent("codex"), Default::default());
+}
+
+#[test]
+fn failed_replacement_is_reported_and_not_tracked() {
+    let mut world = World::new();
+    let claude = world.agent("claude", &["x", "s", "p"]);
+    install_by_hand(&world, &claude);
+
+    let plan = world.plan("claude", &claude, world.desired("x", "s", "p"), true);
+    assert_eq!(world.apply(&plan), 3);
+
+    assert_eq!(world.saved().agent("claude"), Default::default());
+    assert_eq!(claude.mcps.borrow()["x"], stdio("manual.js"));
+    assert_eq!(skill_body(&claude, "s"), "manual skill");
+    assert!(claude.plugins.borrow().contains("p@other-market"));
+
+    let again = world.plan("claude", &claude, world.desired("x", "s", "p"), false);
+    let conflicts = actions(&again)
+        .iter()
+        .all(|(_, _, a)| *a == Action::Conflict);
+    assert!(conflicts, "{:?}", actions(&again));
+}
+
+#[test]
+fn silent_update_never_skips_confirming_an_imported_build() {
+    assert_eq!(init_confirm(true, true, true, true), (true, None));
+    assert_eq!(init_confirm(true, false, false, true), (true, None));
+    for (silent, silent_update) in [(true, false), (false, true), (true, true)] {
+        let (skip, note) = init_confirm(false, silent, silent_update, true);
+        assert!(!skip);
+        assert!(note.unwrap().contains("build de mcp importado"));
+        assert!(init_confirm(false, silent, silent_update, false).0);
+    }
+    let (skip, note) = init_confirm(false, true, false, false);
+    assert!(skip && note.unwrap().contains("atualizacao silenciosa"));
+    let (skip, note) = init_confirm(false, false, true, false);
+    assert!(skip && note.unwrap().contains("silentUpdate"));
+    assert_eq!(init_confirm(false, false, false, true), (false, None));
+    assert_eq!(init_confirm(false, false, false, false), (false, None));
+}
+
+/// Answers every question with `yes`, or cannot answer at all; counts the questions.
+struct Answer {
+    can: bool,
+    yes: bool,
+    asked: RefCell<usize>,
+}
+
+impl Confirm for Answer {
+    fn can_answer(&self) -> bool {
+        self.can
+    }
+
+    fn ask(&self, _question: &str) -> anyhow::Result<bool> {
+        *self.asked.borrow_mut() += 1;
+        Ok(self.yes)
+    }
+}
+
+fn answer(can: bool, yes: bool) -> Answer {
+    Answer {
+        can,
+        yes,
+        asked: RefCell::new(0),
+    }
+}
+
+/// Git repo with one commit under `root/name`; returns its path and commit.
+fn git_repo(root: &Path, name: &str) -> (String, String) {
+    let dir = root.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let run = |args: &[&str]| {
+        let mut all = vec!["-c", "user.name=t", "-c", "user.email=t@t"];
+        all.extend_from_slice(args);
+        crate::git::git(&all, Some(&dir)).unwrap()
+    };
+    run(&["init", "-q", "-b", "main"]);
+    std::fs::write(dir.join("agsync.yaml"), "version: 1\n").unwrap();
+    run(&["add", "."]);
+    run(&["commit", "-q", "-m", "one"]);
+    let sha = run(&["rev-parse", "HEAD"]).trim().to_string();
+    (dir.to_string_lossy().to_string(), sha)
+}
+
+/// A report that adds mcp `x`, skill `s` and plugin `p` to `agent`, after building the
+/// imported mcp `x`.
+fn imported_build_report(world: &World, agent: &Rc<Agent>) -> Report {
+    let (url, sha) = git_repo(world.tmp.path(), "config");
+    let snapshot = crate::git::Snapshot::fetch(&url, "main", &sha).unwrap();
+    let job = crate::source::BuildJob {
+        name: "x".into(),
+        repo: url.clone(),
+        git_ref: "main".into(),
+        sha: sha.clone(),
+        commands: vec!["echo built> built.txt".into()],
+        dir: world.dirs.sources().join("x"),
+    };
+    let mut origins = BTreeMap::new();
+    origins.insert(("mcp", "x".to_string()), format!("imports.mcp {url}@main"));
+    Report {
+        dirs: world.dirs.clone(),
+        machine: crate::machine::Machine {
+            repo: url,
+            git_ref: "main".into(),
+            profiles: Vec::new(),
+            check_interval_minutes: 60,
+        },
+        state: State::default(),
+        remote: sha,
+        snapshot,
+        agents: vec![world.plan("claude", agent, world.desired("x", "s", "p"), false)],
+        builds: vec![job],
+        skipped: Vec::new(),
+        warnings: Vec::new(),
+        watched: Vec::new(),
+        silent_update: false,
+        origins,
+    }
+}
+
+/// Whether the build ran: each run leaves a log, which cleanup keeps.
+fn built(world: &World) -> bool {
+    std::fs::read_dir(world.dirs.logs()).is_ok_and(|mut logs| logs.next().is_some())
+}
+
+#[test]
+fn no_applies_nothing_and_never_runs_the_imported_build() {
+    let world = World::new();
+    let claude = world.agent("claude", &[]);
+    let report = imported_build_report(&world, &claude);
+    assert!(report.has_imported_build());
+    let no = answer(true, false);
+    let mut events = Vec::new();
+    let applied = run(report, &no, "agsync apply", |_| Ok(()), &mut |e| {
+        events.push(e.clone())
+    })
+    .unwrap();
+
+    assert_eq!(*no.asked.borrow(), 1);
+    assert!(applied.pending && applied.imported_build && !applied.confirmed);
+    assert!(applied.events.is_empty() && events.is_empty());
+    assert!(!built(&world));
+    assert!(claude.mcps.borrow().is_empty());
+    assert!(claude.plugins.borrow().is_empty());
+    assert!(!claude.skills_dir.join("s").exists());
+    assert!(!world.dirs.state_file().exists());
+}
+
+#[test]
+fn without_an_answer_the_imported_build_never_runs() {
+    let world = World::new();
+    let claude = world.agent("claude", &[]);
+    let report = imported_build_report(&world, &claude);
+    let nobody = answer(false, true);
+    let err = run(report, &nobody, "agsync apply", |_| Ok(()), &mut |_| {}).unwrap_err();
+
+    assert!(err.to_string().contains("agsync apply --yes"), "{err:#}");
+    assert_eq!(*nobody.asked.borrow(), 0);
+    assert!(!built(&world));
+    assert!(claude.mcps.borrow().is_empty());
+    assert!(!world.dirs.state_file().exists());
+}
+
+#[test]
+fn yes_runs_the_imported_build_and_reports_each_step() {
+    let world = World::new();
+    let claude = world.agent("claude", &[]);
+    let report = imported_build_report(&world, &claude);
+    let yes = answer(true, true);
+    let mut events = Vec::new();
+    let applied = run(report, &yes, "agsync apply", |_| Ok(()), &mut |e| {
+        events.push(e.clone())
+    })
+    .unwrap();
+
+    assert!(applied.confirmed && built(&world));
+    assert_eq!(applied.failures, 0);
+    assert!(applied.mcp_written);
+    assert_eq!(events, applied.events);
+    let steps: Vec<String> = events
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap()["event"].to_string())
+        .collect();
+    let expected = [
+        "build_started",
+        "build_done",
+        "written",
+        "written",
+        "written",
+        "cleaned",
+    ];
+    assert_eq!(steps, expected.map(|s| format!("\"{s}\"")));
+    let json = serde_json::to_value(&applied).unwrap();
+    assert_eq!(json["plan"]["builds"][0]["name"], "x");
+    assert!(world.dirs.state_file().is_file());
+}

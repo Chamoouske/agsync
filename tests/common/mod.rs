@@ -11,7 +11,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use agsync::tmp::TempDir;
+use agsync_core::tmp::TempDir;
 use serde_json::Value;
 
 pub struct Env {
@@ -211,7 +211,7 @@ pub fn fake_bin(env: &Env, names: &[&str]) -> PathBuf {
 pub fn path_with(tools: &[&str], first: &[PathBuf]) -> OsString {
     let mut dirs: Vec<PathBuf> = first.to_vec();
     for tool in tools {
-        if let Some(exe) = agsync::which::find(tool) {
+        if let Some(exe) = agsync_core::which::find(tool) {
             dirs.push(exe.parent().unwrap().to_path_buf());
         }
     }
@@ -229,7 +229,7 @@ impl Untouched {
             .map(|file| {
                 let state = std::fs::read(file).ok().map(|bytes| {
                     let mtime = std::fs::metadata(file).unwrap().modified().unwrap();
-                    (agsync::hash::hash_bytes(&bytes), mtime)
+                    (agsync_core::hash::hash_bytes(&bytes), mtime)
                 });
                 (file.clone(), state)
             })
@@ -244,7 +244,7 @@ impl Untouched {
 }
 
 pub fn claude_missing(test: &str) -> bool {
-    if agsync::which::find("claude").is_some() {
+    if agsync_core::which::find("claude").is_some() {
         return false;
     }
     eprintln!("SKIP {test}: `claude` nao esta no PATH");
