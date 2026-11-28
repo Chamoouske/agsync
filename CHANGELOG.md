@@ -4,6 +4,32 @@ Todas as mudanças relevantes do agsync ficam neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as versões seguem o [Versionamento Semântico](https://semver.org/lang/pt-BR/). As seções novas são geradas na release pelo [git-cliff](https://git-cliff.org/) a partir dos Conventional Commits: veja [Releases](https://chamoouske.github.io/agsync/contribuicao/releases.html#changelog).
 
+## [0.15.1] - 2026-11-28
+
+### Alterado
+
+- Status and diff return serializable data (PER-41)
+- Secret list returns serializable data (PER-54)
+- Doctor returns serializable data (PER-52)
+- Confirmation arrives as a parameter (PER-42)
+- Pending and new version return serializable data (PER-53)
+- Apply returns serializable result and reports progress by event (PER-55)
+- Schedule registers without printing (PER-57)
+- Shell hook offer returns each outcome (PER-57)
+- Init steps take options and return results (PER-57)
+- Rollback returns the apply result and takes confirmation as a parameter (PER-56)
+- Move the library into the agsync-core crate of a Cargo workspace (PER-43)
+- Move the init and rollback terminal code into the CLI crate (PER-66)
+
+### Corrigido
+
+- Rollback forgets watch.json right after yes, also when the run fails (PER-56)
+- Ssh runs in batch mode and points to ssh-agent on auth failure (PER-62)
+- Keep plink and non-ssh variants out of BatchMode; isolate ssh test from env (PER-62)
+- Ssh auth hint also points to an unregistered public key (PER-63)
+
+[0.15.1]: https://github.com/Chamoouske/agsync/compare/v0.15.0...v0.15.1
+
 ## [0.15.0] - 2026-11-26
 
 ### Adicionado
