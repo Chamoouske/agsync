@@ -1,12 +1,12 @@
 {
-    "version": "0.15.0",
+    "version": "0.15.1",
     "description": "Sync MCP servers and skills from a git config repo into coding agents",
     "homepage": "https://github.com/Chamoouske/agsync",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/Chamoouske/agsync/releases/download/v0.15.0/agsync-x86_64-pc-windows-msvc.exe#/agsync.exe",
-            "hash": "a1223daa98518427b73499dd9b6b14b711168037038e39838005f0996e1b04a3"
+            "url": "https://github.com/Chamoouske/agsync/releases/download/v0.15.1/agsync-x86_64-pc-windows-msvc.exe#/agsync.exe",
+            "hash": "6b863c080aa28995268d271cc28fb551a451ec50331fe592007e295df3c39ef3"
         }
     },
     "bin": "agsync.exe",
